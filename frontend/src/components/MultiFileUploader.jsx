@@ -155,6 +155,10 @@ function MultiFileUploader(props) {
     // Backend expects 'archivo_original'
     formData.append('archivo_original', fileData.file);
     
+    // Send original filename to nombre_original field
+    const originalName = fileData.name.replace(/\.[^/.]+$/, ''); // Name without extension
+    formData.append('nombre_original', originalName);
+    
     // Backend expects 'directorio' (optional)
     if (dirId) {
       formData.append('directorio', dirId);
@@ -164,11 +168,15 @@ function MultiFileUploader(props) {
       formData.append('modulo', moduloId);
     }
 
-    // Pizarra mínima con name del file
+    // Pizarra: empty by default, user will fill manually
     const pizarra = {
-      producto: fileData.name.replace(/\.[^/.]+$/, ''), // Name sin extensión
-      version: 'v1',
-      duracion: '00:00:00'
+      producto: '',
+      cliente: '',
+      agencia: '',
+      version: '',
+      duracion: '',
+      formato: '',
+      fecha: ''
     };
     formData.append('pizarra', JSON.stringify(pizarra));
 

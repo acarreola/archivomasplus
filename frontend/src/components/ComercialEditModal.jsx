@@ -9,7 +9,7 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
   
   // Form data for editing
   const [formData, setFormData] = useState({
-    name_original: '',
+    nombre_original: '',
     pizarra: {
       producto: '',
       cliente: '',
@@ -25,7 +25,7 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
   useEffect(() => {
     if (comercial) {
       setFormData({
-        name_original: comercial.name_original || '',
+        nombre_original: comercial.nombre_original || '',
         pizarra: {
           producto: comercial.pizarra?.producto || '',
           cliente: comercial.pizarra?.cliente || '',
@@ -184,7 +184,7 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
                   <div className="bg-white rounded-lg p-3 border border-gray-200">
                     <div className="text-xs font-bold text-gray-500 uppercase mb-1">Original Name</div>
                     <div className="text-sm text-gray-900 break-all font-medium">
-                      {comercial.name_original || 'N/A'}
+                      {comercial.nombre_original || 'N/A'}
                     </div>
                   </div>
 
@@ -319,7 +319,7 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
                       {/* Original Name */}
                       <div>
                         <span className="font-bold text-gray-700 text-sm">Original Name:</span>{' '}
-                        <span className="text-gray-900 text-sm">{comercial.name_original || 'N/A'}</span>
+                        <span className="text-gray-900 text-sm">{comercial.nombre_original || 'N/A'}</span>
                       </div>
                       
                       {/* File Code */}
