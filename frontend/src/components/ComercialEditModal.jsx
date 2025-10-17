@@ -3,9 +3,72 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 
 export default function ComercialEditModal({ comercial, onClose, onSave }) {
-  // Simplified: Only show preview, no edit tab
+  const [activeTab, setActiveTab] = useState('preview'); // 'preview' or 'edit'
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
+  
+  // Form data for editing
+  const [formData, setFormData] = useState({
+    name_original: '',
+    pizarra: {
+      producto: '',
+      cliente: '',
+      agencia: '',
+      version: '',
+      duracion: '',
+    }
+  });
+
+  // Initialize form data when comercial changes
+  useEffect(() => {
+    if (comercial) {
+      setFormData({
+        name_original: comercial.name_original || '',
+        pizarra: {
+          producto: comercial.pizarra?.producto || '',
+          cliente: comercial.pizarra?.cliente || '',
+          agencia: comercial.pizarra?.agencia || '',
+          version: comercial.pizarra?.version || '',
+          duracion: comercial.pizarra?.duracion || '',
+        }
+      });
+    }
+  }, [comercial]);
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    if (name.startsWith('pizarra.')) {
+      const field = name.split('.')[1];
+      setFormData(prev => ({
+        ...prev,
+        pizarra: {
+          ...prev.pizarra,
+          [field]: value
+        }
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        [name]: value
+      }));
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setIsSaving(true);
+    setError('');
+    
+    try {
+      await axios.patch(`/api/broadcasts/${comercial.id}/`, formData);
+      onSave && onSave();
+      onClose();
+    } catch (err) {
+      setError('Error saving changes: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   if (!comercial) return null;
 
@@ -19,19 +82,48 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
       <div className="bg-gray-900 rounded-lg shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
-        {/* Header - Simple, no tabs */}
-        <div className="bg-blue-700 text-white px-6 py-4 flex justify-between items-center">
-          <h2 className="text-xl font-semibold">PREVIEW</h2>
-          <button 
-            onClick={onClose}
-            className="text-white hover:text-gray-300 text-2xl font-bold"
-          >
-            ×
-          </button>
+        {/* Header with Tabs */}
+        <div className="bg-blue-700 text-white px-6 py-4">
+          <div className="flex justify-between items-center mb-3">
+            <h2 className="text-xl font-semibold">
+              {activeTab === 'preview' ? 'PREVIEW' : 'EDIT METADATA'}
+            </h2>
+            <button 
+              onClick={onClose}
+              className="text-white hover:text-gray-300 text-2xl font-bold"
+            >
+              ×
+            </button>
+          </div>
+          
+          {/* Tab Buttons */}
+          <div className="flex space-x-2">
+            <button
+              onClick={() => setActiveTab('preview')}
+              className={`px-4 py-2 rounded-t-lg font-semibold transition ${
+                activeTab === 'preview' 
+                  ? 'bg-white text-blue-700' 
+                  : 'bg-blue-600 text-white hover:bg-blue-500'
+              }`}
+            >
+              Preview
+            </button>
+            <button
+              onClick={() => setActiveTab('edit')}
+              className={`px-4 py-2 rounded-t-lg font-semibold transition ${
+                activeTab === 'edit' 
+                  ? 'bg-white text-blue-700' 
+                  : 'bg-blue-600 text-white hover:bg-blue-500'
+              }`}
+            >
+              Edit Metadata
+            </button>
+          </div>
         </div>
 
-        {/* Content - Preview Only */}
-        <div className="flex-1 overflow-y-auto p-6 bg-white">{/* Vista Preview - Layout: Video + Thumbnail (izquierda) | Metadata (derecha) */}
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-6 bg-white">
+          {activeTab === 'preview' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Lado Izquierdo: Video + Thumbnail */}
               <div className="space-y-4">
@@ -182,8 +274,134 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
                 </div>
               </div>
             </div>
+          ) : (
+            /* Edit Metadata Tab */
+            <form onSubmit={handleSubmit} className="space-y-6">
+              {error && (
+                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+                  {error}
+                </div>
+              )}
+
+              {/* Original Name (Read-only info + editable field) */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  Original Name
+                  <span className="text-xs font-normal text-gray-500 ml-2">(Name when file was uploaded)</span>
+                </label>
+                <input
+                  type="text"
+                  name="name_original"
+                  value={formData.name_original}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Enter original filename"
+                />
+              </div>
+
+              {/* Pizarra Fields */}
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">
+                <h3 className="text-lg font-bold text-gray-800 mb-3 border-b pb-2">Metadata Fields</h3>
+                
+                {/* Product */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Product
+                  </label>
+                  <input
+                    type="text"
+                    name="pizarra.producto"
+                    value={formData.pizarra.producto}
+                    onChange={handleChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Product name"
+                  />
+                </div>
+
+                {/* Client */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Client
+                  </label>
+                  <input
+                    type="text"
+                    name="pizarra.cliente"
+                    value={formData.pizarra.cliente}
+                    onChange={handleChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Client name"
+                  />
+                </div>
+
+                {/* Agency */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Agency
+                  </label>
+                  <input
+                    type="text"
+                    name="pizarra.agencia"
+                    value={formData.pizarra.agencia}
+                    onChange={handleChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Agency name"
+                  />
+                </div>
+
+                {/* Version */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Version
+                  </label>
+                  <input
+                    type="text"
+                    name="pizarra.version"
+                    value={formData.pizarra.version}
+                    onChange={handleChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Version (e.g., 30s, 15s)"
+                  />
+                </div>
+
+                {/* Duration */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Duration
+                  </label>
+                  <input
+                    type="text"
+                    name="pizarra.duracion"
+                    value={formData.pizarra.duracion}
+                    onChange={handleChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Duration (e.g., 30, 60)"
+                  />
+                </div>
+              </div>
+
+              {/* Form Actions */}
+              <div className="flex justify-end space-x-3 pt-4 border-t">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-6 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition font-semibold"
+                  disabled={isSaving}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold disabled:opacity-50"
+                  disabled={isSaving}
+                >
+                  {isSaving ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       </div>
     </div>
   );
 }
+
