@@ -16,6 +16,8 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
       agencia: '',
       version: '',
       duracion: '',
+      formato: '',
+      fecha: '',
     }
   });
 
@@ -30,6 +32,8 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
           agencia: comercial.pizarra?.agencia || '',
           version: comercial.pizarra?.version || '',
           duracion: comercial.pizarra?.duracion || '',
+          formato: comercial.pizarra?.formato || '',
+          fecha: comercial.pizarra?.fecha || '',
         }
       });
     }
@@ -275,7 +279,7 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
               </div>
             </div>
           ) : (
-            /* Edit Metadata Tab */
+            /* Edit Metadata Tab - Two Column Layout (60/40 split) */
             <form onSubmit={handleSubmit} className="space-y-6">
               {error && (
                 <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
@@ -283,99 +287,176 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
                 </div>
               )}
 
-              {/* Original Name (Read-only info + editable field) */}
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <label className="block text-sm font-bold text-gray-700 mb-2">
-                  Original Name
-                  <span className="text-xs font-normal text-gray-500 ml-2">(Name when file was uploaded)</span>
-                </label>
-                <input
-                  type="text"
-                  name="name_original"
-                  value={formData.name_original}
-                  onChange={handleChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Enter original filename"
-                />
-              </div>
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+                {/* Left Column: Video Player (60% - 3 cols) */}
+                <div className="md:col-span-3 space-y-4">
+                  {/* Video Player - 30% bigger */}
+                  <div className="bg-black rounded-lg overflow-hidden shadow-lg" style={{ aspectRatio: '16/9' }}>
+                    {videoUrl ? (
+                      <video 
+                        controls 
+                        className="w-full h-full"
+                        style={{ objectFit: 'contain' }}
+                        src={videoUrl}
+                      >
+                        Tu navegador no soporta el elemento de video.
+                      </video>
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-white text-center p-4">
+                        <div>
+                          <p>Video no disponible</p>
+                          {comercial.estado_transcodificacion === 'PROCESANDO' && (
+                            <p className="text-sm mt-2">Transcodificando...</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
-              {/* Pizarra Fields */}
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">
-                <h3 className="text-lg font-bold text-gray-800 mb-3 border-b pb-2">Metadata Fields</h3>
-                
-                {/* Product */}
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Product
-                  </label>
-                  <input
-                    type="text"
-                    name="pizarra.producto"
-                    value={formData.pizarra.producto}
-                    onChange={handleChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Product name"
-                  />
+                  {/* Only 3 fields: Original Name, File Code, File Size */}
+                  <div className="bg-gradient-to-br from-gray-50 to-gray-100 border-2 border-gray-200 rounded-lg p-4 shadow-sm">
+                    <div className="space-y-3">
+                      {/* Original Name */}
+                      <div>
+                        <span className="font-bold text-gray-700 text-sm">Original Name:</span>{' '}
+                        <span className="text-gray-900 text-sm">{comercial.name_original || 'N/A'}</span>
+                      </div>
+                      
+                      {/* File Code */}
+                      <div>
+                        <span className="font-bold text-gray-700 text-sm">File Code:</span>{' '}
+                        <code className="bg-gray-800 text-green-400 px-2 py-1 rounded text-xs font-mono">
+                          {comercial.id.split('-')[0]}.mov
+                        </code>
+                      </div>
+
+                      {/* File Size */}
+                      {comercial.file_size && (
+                        <div>
+                          <span className="font-bold text-gray-700 text-sm">File Size:</span>{' '}
+                          <span className="text-gray-900 text-sm font-semibold">
+                            {(() => {
+                              const bytes = comercial.file_size;
+                              if (bytes >= 1073741824) return `${(bytes / 1073741824).toFixed(2)} GB`;
+                              else if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(2)} MB`;
+                              else if (bytes >= 1024) return `${(bytes / 1024).toFixed(2)} KB`;
+                              else return `${bytes} bytes`;
+                            })()}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
-                {/* Client */}
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Client
-                  </label>
-                  <input
-                    type="text"
-                    name="pizarra.cliente"
-                    value={formData.pizarra.cliente}
-                    onChange={handleChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Client name"
-                  />
-                </div>
+                {/* Right Column: Editable Metadata Fields (40% - 2 cols) */}
+                <div className="md:col-span-2 space-y-3">
+                  <h3 className="text-base font-bold text-gray-800 border-b-2 border-blue-500 pb-2">Metadata Fields</h3>
+                  
+                  {/* Client */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">
+                      Client
+                    </label>
+                    <input
+                      type="text"
+                      name="pizarra.cliente"
+                      value={formData.pizarra.cliente}
+                      onChange={handleChange}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      placeholder="Client name"
+                    />
+                  </div>
 
-                {/* Agency */}
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Agency
-                  </label>
-                  <input
-                    type="text"
-                    name="pizarra.agencia"
-                    value={formData.pizarra.agencia}
-                    onChange={handleChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Agency name"
-                  />
-                </div>
+                  {/* Agency */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">
+                      Agency
+                    </label>
+                    <input
+                      type="text"
+                      name="pizarra.agencia"
+                      value={formData.pizarra.agencia}
+                      onChange={handleChange}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      placeholder="Agency name"
+                    />
+                  </div>
 
-                {/* Version */}
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Version
-                  </label>
-                  <input
-                    type="text"
-                    name="pizarra.version"
-                    value={formData.pizarra.version}
-                    onChange={handleChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Version (e.g., 30s, 15s)"
-                  />
-                </div>
+                  {/* Product */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">
+                      Product
+                    </label>
+                    <input
+                      type="text"
+                      name="pizarra.producto"
+                      value={formData.pizarra.producto}
+                      onChange={handleChange}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      placeholder="Product name"
+                    />
+                  </div>
 
-                {/* Duration */}
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Duration
-                  </label>
-                  <input
-                    type="text"
-                    name="pizarra.duracion"
-                    value={formData.pizarra.duracion}
-                    onChange={handleChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Duration (e.g., 30, 60)"
-                  />
+                  {/* Version */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">
+                      Version
+                    </label>
+                    <input
+                      type="text"
+                      name="pizarra.version"
+                      value={formData.pizarra.version}
+                      onChange={handleChange}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      placeholder="e.g., 30s, 15s"
+                    />
+                  </div>
+
+                  {/* Time */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">
+                      Time
+                    </label>
+                    <input
+                      type="text"
+                      name="pizarra.duracion"
+                      value={formData.pizarra.duracion}
+                      onChange={handleChange}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      placeholder="e.g., 30, 60"
+                    />
+                  </div>
+
+                  {/* Format */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">
+                      Format
+                    </label>
+                    <input
+                      type="text"
+                      name="pizarra.formato"
+                      value={formData.pizarra.formato}
+                      onChange={handleChange}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      placeholder="e.g., MOV, MP4"
+                    />
+                  </div>
+
+                  {/* Date */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">
+                      Date
+                    </label>
+                    <input
+                      type="text"
+                      name="pizarra.fecha"
+                      value={formData.pizarra.fecha}
+                      onChange={handleChange}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      placeholder="e.g., 2024-10-17"
+                    />
+                  </div>
                 </div>
               </div>
 
