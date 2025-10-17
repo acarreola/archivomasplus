@@ -394,7 +394,7 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
                       value={formData.pizarra.producto}
                       onChange={handleChange}
                       className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                      placeholder="Product name"
+                      placeholder="Product description (not commercial name)"
                     />
                   </div>
 
@@ -433,14 +433,17 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
                     <label className="block text-sm font-semibold text-gray-700 mb-1">
                       Format
                     </label>
-                    <input
-                      type="text"
+                    <select
                       name="pizarra.formato"
                       value={formData.pizarra.formato}
                       onChange={handleChange}
                       className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                      placeholder="e.g., MOV, MP4"
-                    />
+                    >
+                      <option value="">Select format...</option>
+                      <option value="Master">Master</option>
+                      <option value="Generico">Generico</option>
+                      <option value="Intergenerico">Intergenerico</option>
+                    </select>
                   </div>
 
                   {/* Date */}
