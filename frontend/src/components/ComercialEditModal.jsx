@@ -230,25 +230,26 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
               )}
 
               <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
-                {/* Left Column: Video Player (60% - 3 cols) */}
+                {/* Left Column: Pizarra (60% - 3 cols) */}
                 <div className="md:col-span-3 space-y-4">
-                  {/* Video Player - 30% bigger */}
-                  <div className="bg-black rounded-lg overflow-hidden shadow-lg" style={{ aspectRatio: '16/9' }}>
-                    {videoUrl ? (
-                      <video 
-                        controls 
-                        className="w-full h-full"
+                  {/* Pizarra Thumbnail */}
+                  <div className="bg-white border-2 border-gray-200 rounded-lg overflow-hidden shadow-lg">
+                    {comercial.pizarra_thumbnail_url ? (
+                      <img 
+                        src={comercial.pizarra_thumbnail_url} 
+                        alt="Pizarra" 
+                        className="w-full"
                         style={{ objectFit: 'contain' }}
-                        src={videoUrl}
-                      >
-                        Tu navegador no soporta el elemento de video.
-                      </video>
+                      />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center text-white text-center p-4">
-                        <div>
-                          <p>Video no disponible</p>
+                      <div className="w-full aspect-video bg-gray-100 flex items-center justify-center text-gray-400">
+                        <div className="text-center p-8">
+                          <svg className="w-16 h-16 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                          <p className="text-base">No pizarra available</p>
                           {comercial.estado_transcodificacion === 'PROCESANDO' && (
-                            <p className="text-sm mt-2">Transcodificando...</p>
+                            <p className="text-sm mt-2">Processing...</p>
                           )}
                         </div>
                       </div>
