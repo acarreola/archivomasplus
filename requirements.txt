@@ -1,0 +1,11 @@
+# requirements.txt
+# Lista de dependencias de Python
+
+django
+djangorestframework
+psycopg2-binary
+celery
+redis
+django-cors-headers
+django-filter
+Pillow

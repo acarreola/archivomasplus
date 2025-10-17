@@ -1,0 +1,60 @@
+# docker-compose.yml
+services:
+# ... (db, redis, backend, frontend) ...
+  worker:
+    container_name: archivoplus_worker
+    build: .
+    command: celery -A archivoplus_backend worker -l info
+    volumes:
+      - .:/app
+      - ./media:/app/media
+    depends_on:
+      - backend
+      - redis
+# ... (el resto del archivo) ...
+  db:
+    image: postgres:15-alpine
+    container_name: archivoplus_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    environment:
+      - POSTGRES_DB=archivoplus_db
+      - POSTGRES_USER=archivoplus_user
+      - POSTGRES_PASSWORD=archivoplus_pass
+    ports:
+      - "5432:5432"
+  redis:
+    image: redis:7-alpine
+    container_name: archivoplus_redis
+    ports:
+      - "6379:6379"
+  backend:
+    container_name: archivoplus_backend
+    build: .
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+        - .:/app
+        - ./media:/app/media # <-- Añade esta línea
+# ...
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+  frontend:
+    container_name: archivoplus_frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.frontend
+    command: npm run dev -- --host 0.0.0.0
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+volumes:
+  postgres_data:
+
+  

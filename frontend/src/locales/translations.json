@@ -1,0 +1,400 @@
+{
+  "es": {
+    "app": {
+      "title": "archivo+",
+      "subtitle": "Media Asset Management"
+    },
+    "nav": {
+      "home": "HOME",
+      "search": "SEARCH",
+      "repositories": "Repositorios",
+      "profile": "Tu perfil",
+      "about": "Acerca de"
+    },
+    "user": {
+      "administrator": "👑 Administrador",
+      "user": "👤 Usuario",
+      "logout": "LOGOUT"
+    },
+    "repository": {
+      "label": "Repositorio Activo",
+      "all": "📁 Todos los Repositorios",
+      "selected": "Selecciona un Repositorio",
+      "count": "comerciales en este repositorio",
+      "selectPrompt": "Elige un repositorio del menú lateral para ver sus comerciales",
+      "selectHint": "Usa el selector en la barra lateral izquierda"
+    },
+    "actions": {
+      "title": "Acciones",
+      "createDirectory": "Crear Directorio",
+      "uploadVideos": "Cargar Videos",
+      "uploadInfo": "Los videos se cargarán automáticamente al repositorio:"
+    },
+    "stats": {
+      "totalFiles": "Total Files",
+      "ready": "Ready",
+      "standby": "standby",
+      "total": "total"
+    },
+    "search": {
+      "quickSearch": "Búsqueda rápida...",
+      "advancedSearch": "Búsqueda Avanzada",
+      "hideFilters": "Ocultar Filtros",
+      "advancedFilters": "Filtros avanzados de búsqueda",
+      "clear": "CLEAR",
+      "search": "SEARCH",
+      "clearFilters": "Limpiar Filtros",
+      "applyFilters": "Aplicar Filtros"
+    },
+    "filters": {
+      "client": "Client:",
+      "clientPlaceholder": "Buscar cliente...",
+      "agency": "Agency:",
+      "agencyPlaceholder": "Buscar agencia...",
+      "product": "Product:",
+      "productPlaceholder": "Buscar producto...",
+      "version": "Version:",
+      "versionPlaceholder": "Buscar versión...",
+      "time": "Time:",
+      "timePlaceholder": "ej: 00:00:30",
+      "format": "Format:",
+      "formatPlaceholder": "ej: 16:9 HD",
+      "date": "Date:",
+      "dateHint": "(dd-mm-aaaa)",
+      "fileName": "File name:",
+      "fileNamePlaceholder": "Buscar nombre..."
+    },
+    "table": {
+      "client": "CLIENT",
+      "agency": "AGENCY",
+      "product": "PRODUCT",
+      "version": "VERSION",
+      "time": "TIME",
+      "type": "TYPE",
+      "date": "DATE",
+      "actions": "ACTIONS"
+    },
+    "status": {
+      "pending": "PENDIENTE",
+      "processing": "PROCESANDO",
+      "completed": "COMPLETADO",
+      "error": "ERROR"
+    },
+    "actions_buttons": {
+      "edit": "Editar",
+      "play": "Reproducir",
+      "share": "Compartir",
+      "download": "Descargar",
+      "downloadProxy": "Descargar Proxy",
+      "delete": "Eliminar"
+    },
+    "directories": {
+      "title": "Directorios",
+      "all": "Todos los archivos",
+      "back": "Volver"
+    },
+    "messages": {
+      "loading": "Cargando comerciales...",
+      "noResults": "No se encontraron resultados",
+      "noCommercials": "No hay comerciales en este repositorio",
+      "uploadFirst": "Subir Primer Comercial",
+      "selectRepository": "Selecciona un Repositorio",
+      "directoryComingSoon": "Funcionalidad de crear directorio próximamente",
+      "selectRepoFirst": "Por favor selecciona un repositorio primero",
+      "directoryCreated": "✓ Directorio creado exitosamente"
+    },
+    "pagination": {
+      "showing": "Mostrando",
+      "to": "a",
+      "of": "de",
+      "results": "resultados",
+      "page": "Página"
+    },
+    "upload": {
+      "title": "SUBIR ARCHIVOS",
+      "close": "×"
+    },
+    "buttons": {
+      "edit": "Editar",
+      "delete": "Eliminar",
+      "save": "Guardar",
+      "cancel": "Cancelar",
+      "upload": "Subir",
+      "create": "Crear",
+      "close": "Cerrar",
+      "apply": "Aplicar",
+      "clear": "Limpiar",
+      "download": "Descargar",
+      "share": "Compartir",
+      "play": "Reproducir",
+      "folder": "Carpeta",
+      "saving": "GUARDANDO...",
+      "loading": "Cargando..."
+    },
+    "modal": {
+      "editBroadcast": "Editar Comercial",
+      "preview": "Vista Previa",
+      "editMetadata": "Editar Metadata",
+      "fileInformation": "Información del Archivo",
+      "originalName": "Nombre Original",
+      "fileCode": "Código de Archivo",
+      "fileSize": "Tamaño de Archivo",
+      "uploadDate": "Fecha de Subida",
+      "status": "Estado",
+      "product": "Producto",
+      "additionalMetadata": "Metadata Adicional",
+      "notSpecified": "No especificado"
+    },
+    "form": {
+      "client": "Cliente",
+      "agency": "Agencia",
+      "product": "Producto",
+      "version": "Versión",
+      "duration": "Duración",
+      "format": "Formato",
+      "date": "Fecha",
+      "name": "Nombre",
+      "description": "Descripción"
+    },
+    "formats": {
+      "master": "Master",
+      "generic": "Genérico",
+      "web": "Web",
+      "tv": "TV"
+    },
+    "alerts": {
+      "confirmDelete": "¿Estás seguro de que quieres eliminar esto?",
+      "confirmDeleteFolder": "¿Estás seguro de que quieres eliminar esta carpeta? Todos los archivos dentro se mantendrán sin carpeta.",
+      "confirmDeleteRepository": "¿Estás seguro de eliminar este repositorio? Se eliminarán todos los archivos asociados.",
+      "errorDeleting": "Error al eliminar",
+      "errorSaving": "Error al guardar",
+      "errorDownloading": "Error al descargar el archivo. Por favor intenta de nuevo.",
+      "successCreated": "Creado exitosamente",
+      "successUpdated": "Actualizado exitosamente",
+      "mustSelect": "Debes seleccionar",
+      "pleaseSelectRepository": "Por favor selecciona un repositorio primero"
+    },
+    "sidebar": {
+      "repository": "REPOSITORIO",
+      "allRepositories": "Todos",
+      "modules": "MÓDULOS",
+      "folders": "CARPETAS",
+      "total": "Total",
+      "ready": "Listo"
+    },
+    "breadcrumb": {
+      "home": "INICIO",
+      "selectRepository": "SELECCIONA UN REPOSITORIO"
+    },
+    "empty": {
+      "selectRepository": "Selecciona un Repositorio",
+      "selectPrompt": "Elige un repositorio del menú lateral para ver sus archivos",
+      "selectHint": "Usa el selector en la barra lateral izquierda",
+      "noFiles": "No hay archivos en esta sección",
+      "section": "Sección",
+      "allowedFormats": "Formatos Permitidos",
+      "noRestrictions": "Sin restricciones - Todos los formatos",
+      "uploadMaterialTo": "Subir Material a",
+      "selectModule": "Selecciona un módulo en el menú lateral para ver o subir archivos"
+    }
+  },
+  "en": {
+    "app": {
+      "title": "archivo+",
+      "subtitle": "Media Asset Management"
+    },
+    "nav": {
+      "home": "HOME",
+      "search": "SEARCH",
+      "repositories": "Repositories",
+      "profile": "Your profile",
+      "about": "About"
+    },
+    "user": {
+      "administrator": "👑 Administrator",
+      "user": "👤 User",
+      "logout": "LOGOUT"
+    },
+    "repository": {
+      "label": "Active Repository",
+      "all": "📁 All Repositories",
+      "selected": "Select a Repository",
+      "count": "commercials in this repository",
+      "selectPrompt": "Choose a repository from the side menu to view its commercials",
+      "selectHint": "Use the selector in the left sidebar"
+    },
+    "actions": {
+      "title": "Actions",
+      "createDirectory": "Create Directory",
+      "uploadVideos": "Upload Videos",
+      "uploadInfo": "Videos will be automatically uploaded to repository:"
+    },
+    "stats": {
+      "totalFiles": "Total Files",
+      "ready": "Ready",
+      "standby": "standby",
+      "total": "total"
+    },
+    "search": {
+      "quickSearch": "Quick search...",
+      "advancedSearch": "Advanced Search",
+      "hideFilters": "Hide Filters",
+      "advancedFilters": "Advanced search filters",
+      "clear": "CLEAR",
+      "search": "SEARCH",
+      "clearFilters": "Clear Filters",
+      "applyFilters": "Apply Filters"
+    },
+    "filters": {
+      "client": "Client:",
+      "clientPlaceholder": "Search client...",
+      "agency": "Agency:",
+      "agencyPlaceholder": "Search agency...",
+      "product": "Product:",
+      "productPlaceholder": "Search product...",
+      "version": "Version:",
+      "versionPlaceholder": "Search version...",
+      "time": "Time:",
+      "timePlaceholder": "e.g: 00:00:30",
+      "format": "Format:",
+      "formatPlaceholder": "e.g: 16:9 HD",
+      "date": "Date:",
+      "dateHint": "(dd-mm-yyyy)",
+      "fileName": "File name:",
+      "fileNamePlaceholder": "Search name..."
+    },
+    "table": {
+      "client": "CLIENT",
+      "agency": "AGENCY",
+      "product": "PRODUCT",
+      "version": "VERSION",
+      "time": "TIME",
+      "type": "TYPE",
+      "date": "DATE",
+      "actions": "ACTIONS"
+    },
+    "status": {
+      "pending": "PENDING",
+      "processing": "PROCESSING",
+      "completed": "COMPLETED",
+      "error": "ERROR"
+    },
+    "actions_buttons": {
+      "edit": "Edit",
+      "play": "Play",
+      "share": "Share",
+      "download": "Download",
+      "downloadProxy": "Download Proxy",
+      "delete": "Delete"
+    },
+    "directories": {
+      "title": "Directories",
+      "all": "All files",
+      "back": "Back"
+    },
+    "messages": {
+      "loading": "Loading commercials...",
+      "noResults": "No results found",
+      "noCommercials": "No commercials in this repository",
+      "uploadFirst": "Upload First Commercial",
+      "selectRepository": "Select a Repository",
+      "directoryComingSoon": "Create directory functionality coming soon",
+      "selectRepoFirst": "Please select a repository first",
+      "directoryCreated": "✓ Directory created successfully"
+    },
+    "pagination": {
+      "showing": "Showing",
+      "to": "to",
+      "of": "of",
+      "results": "results",
+      "page": "Page"
+    },
+    "upload": {
+      "title": "UPLOAD FILES",
+      "close": "×"
+    },
+    "buttons": {
+      "edit": "Edit",
+      "delete": "Delete",
+      "save": "Save",
+      "cancel": "Cancel",
+      "upload": "Upload",
+      "create": "Create",
+      "close": "Close",
+      "apply": "Apply",
+      "clear": "Clear",
+      "download": "Download",
+      "share": "Share",
+      "play": "Play",
+      "folder": "Folder",
+      "saving": "SAVING...",
+      "loading": "Loading..."
+    },
+    "modal": {
+      "editBroadcast": "Edit Broadcast",
+      "preview": "Preview",
+      "editMetadata": "Edit Metadata",
+      "fileInformation": "File Information",
+      "originalName": "Original Name",
+      "fileCode": "File Code",
+      "fileSize": "File Size",
+      "uploadDate": "Upload Date",
+      "status": "Status",
+      "product": "Product",
+      "additionalMetadata": "Additional Metadata",
+      "notSpecified": "Not specified"
+    },
+    "form": {
+      "client": "Client",
+      "agency": "Agency",
+      "product": "Product",
+      "version": "Version",
+      "duration": "Time",
+      "format": "Format",
+      "date": "Date",
+      "name": "Name",
+      "description": "Description"
+    },
+    "formats": {
+      "master": "Master",
+      "generic": "Generic",
+      "web": "Web",
+      "tv": "TV"
+    },
+    "alerts": {
+      "confirmDelete": "Are you sure you want to delete this?",
+      "confirmDeleteFolder": "Are you sure you want to delete this folder? All files inside will remain without a folder.",
+      "confirmDeleteRepository": "Are you sure you want to delete this repository? All associated files will be deleted.",
+      "errorDeleting": "Error deleting",
+      "errorSaving": "Error saving",
+      "errorDownloading": "Error downloading file. Please try again.",
+      "successCreated": "Created successfully",
+      "successUpdated": "Updated successfully",
+      "mustSelect": "You must select",
+      "pleaseSelectRepository": "Please select a repository first"
+    },
+    "sidebar": {
+      "repository": "REPOSITORY",
+      "allRepositories": "All",
+      "modules": "MODULES",
+      "folders": "FOLDERS",
+      "total": "Total",
+      "ready": "Ready"
+    },
+    "breadcrumb": {
+      "home": "HOME",
+      "selectRepository": "SELECT A REPOSITORY"
+    },
+    "empty": {
+      "selectRepository": "Select a Repository",
+      "selectPrompt": "Choose a repository from the sidebar to view its files",
+      "selectHint": "Use the selector in the left sidebar",
+      "noFiles": "No files in this section",
+      "section": "Section",
+      "allowedFormats": "Allowed Formats",
+      "noRestrictions": "No restrictions - All formats",
+      "uploadMaterialTo": "Upload Material to",
+      "selectModule": "Select a module in the sidebar to view or upload files"
+    }
+  }
+}
