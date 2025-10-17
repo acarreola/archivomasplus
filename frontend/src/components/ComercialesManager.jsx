@@ -953,17 +953,17 @@ function ComercialesManager() {
             </div>
           ) : viewMode === 'simple' ? (
             /* View 1: SIMPLE - Thumbnail, original name, key, file size, upload date, status */
-            <div className="p-6">
-              <table className="w-full">
+            <div className="p-6 overflow-x-auto">
+              <table className="w-full table-fixed">
                 <thead className="bg-gray-100 border-b-2 border-gray-300">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">THUMBNAIL</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">ORIGINAL NAME</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-64">ORIGINAL NAME</th>
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">KEY</th>
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-28">FILE SIZE</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">UPLOAD DATE</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-36">UPLOAD DATE</th>
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-40">STATUS</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">ACTIONS</th>
+                    <th className="px-4 py-3 text-right text-xs font-bold text-gray-600 uppercase w-80">ACTIONS</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
@@ -1131,19 +1131,19 @@ function ComercialesManager() {
             </div>
           ) : viewMode === 'list' ? (
             /* Vista 2: LISTA COMPLETA - Todos los campos */
-            <div className="p-6">
-              <table className="w-full">
+            <div className="p-6 overflow-x-auto">
+              <table className="w-full table-fixed">
                 <thead className="bg-gray-100 border-b-2 border-gray-300">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">THUMBNAIL</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">CLIENT</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">AGENCY</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">PRODUCT</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">VERSION</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">TIME</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">TYPE</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">DATE</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">ACTIONS</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-40">CLIENT</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-40">AGENCY</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-48">PRODUCT</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">VERSION</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-24">TIME</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">TYPE</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-36">DATE</th>
+                    <th className="px-4 py-3 text-right text-xs font-bold text-gray-600 uppercase w-80">ACTIONS</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
@@ -1253,7 +1253,7 @@ function ComercialesManager() {
                           {new Date(item.data.fecha_subida).toLocaleDateString('es-MX')}
                         </td>
                         <td className="px-4 py-3 text-sm">
-                          <div className="flex space-x-1">
+                          <div className="flex justify-end space-x-1">
                             <button
                               onClick={() => setEditingComercial(item.data)}
                               className="p-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
