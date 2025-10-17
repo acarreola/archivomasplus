@@ -1246,10 +1246,8 @@ function ComercialesManager() {
                         <td className="px-4 py-3 text-sm text-gray-700">
                           {item.data.pizarra?.duracion || '-'}
                         </td>
-                        <td className="px-4 py-3 text-sm">
-                          <span className={`px-2 py-1 text-xs rounded-full ${getEstadoBadge(item.data.estado_transcodificacion)}`}>
-                            {item.data.estado_transcodificacion}
-                          </span>
+                        <td className="px-4 py-3 text-sm text-gray-700">
+                          {item.data.pizarra?.formato || '-'}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-600">
                           {new Date(item.data.fecha_subida).toLocaleDateString('es-MX')}
