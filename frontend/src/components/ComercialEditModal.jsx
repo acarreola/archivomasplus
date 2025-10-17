@@ -391,10 +391,10 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
                     <input
                       type="text"
                       name="pizarra.producto"
-                      value={formData.pizarra.producto}
+                      value={formData.pizarra.producto || ''}
                       onChange={handleChange}
                       className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                      placeholder="Product description (not commercial name)"
+                      placeholder="Enter product"
                     />
                   </div>
 
@@ -406,10 +406,10 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
                     <input
                       type="text"
                       name="pizarra.version"
-                      value={formData.pizarra.version}
+                      value={formData.pizarra.version || ''}
                       onChange={handleChange}
                       className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                      placeholder="e.g., 30s, 15s"
+                      placeholder="Enter version"
                     />
                   </div>
 
@@ -452,12 +452,11 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
                       Date
                     </label>
                     <input
-                      type="text"
+                      type="date"
                       name="pizarra.fecha"
-                      value={formData.pizarra.fecha}
+                      value={formData.pizarra.fecha || ''}
                       onChange={handleChange}
                       className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                      placeholder="e.g., 2024-10-17"
                     />
                   </div>
                 </div>
