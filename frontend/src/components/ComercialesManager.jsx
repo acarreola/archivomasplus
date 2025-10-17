@@ -1256,58 +1256,73 @@ function ComercialesManager() {
                           <div className="flex space-x-1">
                             <button
                               onClick={() => setEditingComercial(item.data)}
-                              className="px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                              className="p-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
                               title="Editar"
                             >
-                              Editar
+                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h357l-80 80H200v560h560v-278l80-80v358q0 33-23.5 56.5T760-120H200Zm280-360ZM360-360v-170l367-367q12-12 27-18t30-6q16 0 30.5 6t26.5 18l56 57q11 12 17 26.5t6 29.5q0 15-5.5 29.5T897-728L530-360H360Zm481-424-56-56 56 56ZM440-440h56l232-232-28-28-29-28-231 231v57Zm260-260-29-28 29 28 28 28-28-28Z"/>
+                              </svg>
                             </button>
                             {item.data.estado_transcodificacion === 'COMPLETADO' && (
                               <button 
                                 onClick={() => handlePlay(item.data)}
-                                className="px-2 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600 transition-colors" 
+                                className="p-1.5 bg-green-500 text-white rounded hover:bg-green-600 transition-colors" 
                                 title="Reproducir"
                               >
-                                Play
+                                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                  <path d="M320-200v-560l440 280-440 280Zm80-280Zm0 134 210-134-210-134v268Z"/>
+                                </svg>
                               </button>
                             )}
                             <button 
                               onClick={() => setSharingComercial(item.data)}
-                              className="px-2 py-1 text-xs bg-indigo-500 text-white rounded hover:bg-indigo-600 transition-colors" 
+                              className="p-1.5 bg-indigo-500 text-white rounded hover:bg-indigo-600 transition-colors" 
                               title="Compartir"
                             >
-                              Share
+                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                <path d="M680-80q-50 0-85-35t-35-85q0-6 3-28L282-392q-16 15-37 23.5t-45 8.5q-50 0-85-35t-35-85q0-50 35-85t85-35q24 0 45 8.5t37 23.5l281-164q-2-7-2.5-13.5T560-760q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-24 0-45-8.5T598-672L317-508q2 7 2.5 13.5t.5 14.5q0 8-.5 14.5T317-452l281 164q16-15 37-23.5t45-8.5q50 0 85 35t35 85q0 50-35 85t-85 35Zm0-80q17 0 28.5-11.5T720-200q0-17-11.5-28.5T680-240q-17 0-28.5 11.5T640-200q0 17 11.5 28.5T680-160ZM200-440q17 0 28.5-11.5T240-480q0-17-11.5-28.5T200-520q-17 0-28.5 11.5T160-480q0 17 11.5 28.5T200-440Zm480-280q17 0 28.5-11.5T720-760q0-17-11.5-28.5T680-800q-17 0-28.5 11.5T640-760q0 17 11.5 28.5T680-720Zm0 520ZM200-480Zm480-280Z"/>
+                              </svg>
                             </button>
                             {item.data.estado_transcodificacion === 'COMPLETADO' && (
                               <button 
                                 onClick={() => setEncodingComercial(item.data)}
-                                className="px-2 py-1 text-xs bg-yellow-500 text-white rounded hover:bg-yellow-600 transition-colors" 
+                                className="p-1.5 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition-colors" 
                                 title="Codificar"
                               >
-                                Encode
+                                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                  <path d="M640-40 480-200l56-58 64 64v-86H360q-33 0-56.5-23.5T280-360v-240H80v-80h200v-86l-64 64-56-58 160-160 160 160-56 58-64-64v406h520v80H680v86l64-64 56 58L640-40Zm-40-400v-160H440v-80h160q33 0 56.5 23.5T680-600v160h-80Z"/>
+                                </svg>
                               </button>
                             )}
                             {item.data.estado_transcodificacion === 'COMPLETADO' && item.data.ruta_h264 && (
                               <button 
                                 onClick={() => handleDownload(item.data, 'h264')}
-                                className="px-2 py-1 text-xs bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors" 
+                                className="p-1.5 bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors" 
                                 title="Descargar H.264"
                               >
-                                H.264
+                                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 0 24 24" width="20px" fill="currentColor">
+                                  <path d="M0 0h24v24H0V0z" fill="none"/>
+                                  <path d="M9 10v8l7-4zm12-4h-7.58l3.29-3.29L16 2l-4 4h-.03l-4-4-.69.71L10.56 6H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 14H3V8h18v12z"/>
+                                </svg>
                               </button>
                             )}
                             <button 
                               onClick={() => handleDownload(item.data, 'original')}
-                              className="px-2 py-1 text-xs bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors" 
+                              className="p-1.5 bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors" 
                               title="Descargar Original"
                             >
-                              Download
+                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                <path d="M480-160q-100 0-170-70t-70-170h80q0 66 47 113t113 47q66 0 113-47t47-113h80q0 100-70 170t-170 70Zm0-201L320-521l56-57 64 64v-246h80v246l64-64 56 57-160 160Z"/>
+                              </svg>
                             </button>
                             <button
                               onClick={() => handleDelete(item.data.id)}
-                              className="px-2 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
+                              className="p-1.5 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
                               title="Eliminar"
                             >
-                              Delete
+                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                <path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/>
+                              </svg>
                             </button>
                           </div>
                         </td>
