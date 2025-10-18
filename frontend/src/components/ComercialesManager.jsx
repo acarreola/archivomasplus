@@ -1501,7 +1501,7 @@ function ComercialesManager() {
                       {comercial.thumbnail_url ? (
                         <img 
                           src={comercial.thumbnail_url}
-                          alt={comercial.pizarra?.producto || 'Thumbnail'}
+                          alt={comercial.nombre_original || 'Thumbnail'}
                           className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
                           onClick={() => setEditingComercial(comercial)}
                         />
@@ -1534,85 +1534,88 @@ function ComercialesManager() {
                           {comercial.estado_transcodificacion}
                         </span>
                       </div>
-
-                      {/* Duración */}
-                      {comercial.pizarra?.duracion && (
-                        <div className="absolute bottom-2 right-2 bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded">
-                          {comercial.pizarra.duracion}
-                        </div>
-                      )}
                     </div>
 
                     {/* Info */}
                     <div className="p-3">
-                      <h3 className="font-semibold text-sm text-gray-900 truncate mb-1">
-                        {comercial.pizarra?.producto || 'Sin título'}
+                      <h3 className="font-semibold text-sm text-gray-900 truncate mb-1" title={comercial.nombre_original || comercial.pizarra?.producto}>
+                        {comercial.nombre_original || comercial.pizarra?.producto || 'Sin título'}
                       </h3>
-                      <p className="text-xs text-gray-600 truncate mb-1">
-                        {comercial.pizarra?.cliente || comercial.repositorio_nombre}
-                      </p>
-                      <p className="text-xs text-gray-500 truncate mb-2">
-                        {comercial.pizarra?.agencia || '-'}
+                      <p className="text-xs text-gray-600 mb-2">
+                        {formatFileSize(comercial.file_size)}
                       </p>
                       
                       {/* Actions */}
-                      <div className="flex justify-between items-center pt-2 border-t border-gray-100">
-                        <div className="flex space-x-2">
-                          <button
-                            onClick={() => setEditingComercial(comercial)}
-                            className="text-blue-600 hover:text-blue-800 text-sm"
-                            title="Editar"
-                          >
-                            ✏️
-                          </button>
-                          {comercial.estado_transcodificacion === 'COMPLETADO' && (
-                            <button 
-                              onClick={() => handlePlay(comercial)}
-                              className="text-green-600 hover:text-green-800 text-sm" 
-                              title="Reproducir"
-                            >
-                              ▶️
-                            </button>
-                          )}
+                      <div className="flex flex-wrap gap-1 pt-2 border-t border-gray-100">
+                        <button
+                          onClick={() => setEditingComercial(comercial)}
+                          className="relative p-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors group/btn"
+                          title="Editar"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
+                            <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h357l-80 80H200v560h560v-278l80-80v358q0 33-23.5 56.5T760-120H200Zm280-360ZM360-360v-170l367-367q12-12 27-18t30-6q16 0 30.5 6t26.5 18l56 57q11 12 17 26.5t6 29.5q0 15-5.5 29.5T897-728L530-360H360Zm481-424-56-56 56 56ZM440-440h56l232-232-28-28-29-28-231 231v57Zm260-260-29-28 29 28 28 28-28-28Z"/>
+                          </svg>
+                        </button>
+                        {comercial.estado_transcodificacion === 'COMPLETADO' && (
                           <button 
-                            onClick={() => setSharingComercial(comercial)}
-                            className="text-blue-500 hover:text-blue-700 text-sm" 
-                            title="Compartir"
+                            onClick={() => handlePlay(comercial)}
+                            className="relative p-1.5 bg-green-500 text-white rounded hover:bg-green-600 transition-colors group/btn"
+                            title="Reproducir"
                           >
-                            🔗
+                            <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
+                              <path d="M320-200v-560l440 280-440 280Zm80-280Zm0 134 210-134-210-134v268Z"/>
+                            </svg>
                           </button>
-                          {comercial.estado_transcodificacion === 'COMPLETADO' && (
-                            <button 
-                              onClick={() => setEncodingComercial(comercial)}
-                              className="text-yellow-600 hover:text-yellow-800 text-sm" 
-                              title="Codificar"
-                            >
-                              🎬
-                            </button>
-                          )}
-                          {comercial.estado_transcodificacion === 'COMPLETADO' && comercial.ruta_h264 && (
-                            <button 
-                              onClick={() => handleDownload(comercial, 'h264')}
-                              className="text-orange-600 hover:text-orange-800 text-sm" 
-                              title="Descargar H.264"
-                            >
-                              📦
-                            </button>
-                          )}
+                        )}
+                        <button 
+                          onClick={() => setSharingComercial(comercial)}
+                          className="relative p-1.5 bg-indigo-500 text-white rounded hover:bg-indigo-600 transition-colors group/btn"
+                          title="Compartir"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
+                            <path d="M680-80q-50 0-85-35t-35-85q0-6 3-28L282-392q-16 15-37 23.5t-45 8.5q-50 0-85-35t-35-85q0-50 35-85t85-35q24 0 45 8.5t37 23.5l281-164q-2-7-2.5-13.5T560-760q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-24 0-45-8.5T598-672L317-508q2 7 2.5 13.5t.5 14.5q0 8-.5 14.5T317-452l281 164q16-15 37-23.5t45-8.5q50 0 85 35t35 85q0 50-35 85t-85 35Zm0-80q17 0 28.5-11.5T720-200q0-17-11.5-28.5T680-240q-17 0-28.5 11.5T640-200q0 17 11.5 28.5T680-160ZM200-440q17 0 28.5-11.5T240-480q0-17-11.5-28.5T200-520q-17 0-28.5 11.5T160-480q0 17 11.5 28.5T200-440Zm480-280q17 0 28.5-11.5T720-760q0-17-11.5-28.5T680-800q-17 0-28.5 11.5T640-760q0 17 11.5 28.5T680-720Zm0 520ZM200-480Zm480-280Z"/>
+                          </svg>
+                        </button>
+                        {comercial.estado_transcodificacion === 'COMPLETADO' && (
                           <button 
-                            onClick={() => handleDownload(comercial, 'original')}
-                            className="text-purple-600 hover:text-purple-800 text-sm" 
-                            title="Descargar Original"
+                            onClick={() => setEncodingComercial(comercial)}
+                            className="relative p-1.5 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition-colors group/btn"
+                            title="Codificar"
                           >
-                            ⬇️
+                            <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
+                              <path d="M640-40 480-200l56-58 64 64v-86H360q-33 0-56.5-23.5T280-360v-240H80v-80h200v-86l-64 64-56-58 160-160 160 160-56 58-64-64v406h520v80H680v86l64-64 56 58L640-40Zm-40-400v-160H440v-80h160q33 0 56.5 23.5T680-600v160h-80Z"/>
+                            </svg>
                           </button>
-                        </div>
+                        )}
+                        {comercial.estado_transcodificacion === 'COMPLETADO' && comercial.ruta_h264 && (
+                          <button 
+                            onClick={() => handleDownload(comercial, 'h264')}
+                            className="relative p-1.5 bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors group/btn"
+                            title="H.264"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 0 24 24" width="16px" fill="currentColor">
+                              <path d="M0 0h24v24H0V0z" fill="none"/>
+                              <path d="M9 10v8l7-4zm12-4h-7.58l3.29-3.29L16 2l-4 4h-.03l-4-4-.69.71L10.56 6H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 14H3V8h18v12z"/>
+                            </svg>
+                          </button>
+                        )}
+                        <button 
+                          onClick={() => handleDownload(comercial, 'original')}
+                          className="relative p-1.5 bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors group/btn"
+                          title="Descargar"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
+                            <path d="M480-160q-100 0-170-70t-70-170h80q0 66 47 113t113 47q66 0 113-47t47-113h80q0 100-70 170t-170 70Zm0-201L320-521l56-57 64 64v-246h80v246l64-64 56 57-160 160Z"/>
+                          </svg>
+                        </button>
                         <button
                           onClick={() => handleDelete(comercial.id)}
-                          className="text-red-600 hover:text-red-800 text-sm"
+                          className="relative p-1.5 bg-red-500 text-white rounded hover:bg-red-600 transition-colors group/btn"
                           title="Eliminar"
                         >
-                          🗑️
+                          <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
+                            <path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/>
+                          </svg>
                         </button>
                       </div>
                       
