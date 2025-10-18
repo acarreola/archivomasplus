@@ -150,7 +150,7 @@ export default function Navbar({ isAdminArea = false }) {
                     </button>
 
                     {/* Admin Menu Item - Only show if user has permission */}
-                    {hasPermission('puede_ver_admin') && !isAdminArea && (
+                    {hasPermission('puede_acceder_administracion') && !isAdminArea && (
                       <>
                         <div className="border-t border-gray-700 my-1"></div>
                         <button
