@@ -26,6 +26,8 @@ function MultiFileUploader(props) {
   const { t } = useLanguage();
   const [files, setFiles] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [duplicateFiles, setDuplicateFiles] = useState([]);
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
   const fileInputRef = useRef(null);
   const abortControllerRef = useRef(null);
 
@@ -131,18 +133,51 @@ function MultiFileUploader(props) {
     }
   };
 
-  const addFiles = (newFiles) => {
-    const filesWithMetadata = newFiles.map(file => ({
-      file,
-      id: `${file.name}-${Date.now()}-${Math.random()}`,
-      name: file.name,
-      size: file.size,
-      status: 'pending', // pending, uploading, completed, error
-      progress: 0,
-      error: null
-    }));
-    
-    setFiles(prev => [...prev, ...filesWithMetadata]);
+  const addFiles = async (newFiles) => {
+    // Verificar duplicados en el servidor
+    const duplicates = [];
+    const validFiles = [];
+
+    for (const file of newFiles) {
+      const originalName = file.name.replace(/\.[^/.]+$/, ''); // Nombre sin extensión
+      
+      try {
+        // Verificar si existe en el servidor
+        const response = await axios.get(`http://localhost:8000/api/broadcasts/?nombre_original=${encodeURIComponent(originalName)}`);
+        
+        if (response.data && response.data.length > 0) {
+          // Archivo duplicado encontrado
+          duplicates.push(file.name);
+        } else {
+          // Archivo válido
+          validFiles.push(file);
+        }
+      } catch (error) {
+        console.error('Error checking duplicate:', error);
+        // Si hay error en la verificación, permitir el archivo
+        validFiles.push(file);
+      }
+    }
+
+    // Si hay duplicados, guardarlos para mostrar al final
+    if (duplicates.length > 0) {
+      setDuplicateFiles(prev => [...prev, ...duplicates]);
+    }
+
+    // Solo agregar archivos válidos (no duplicados)
+    if (validFiles.length > 0) {
+      const filesWithMetadata = validFiles.map(file => ({
+        file,
+        id: `${file.name}-${Date.now()}-${Math.random()}`,
+        name: file.name,
+        size: file.size,
+        status: 'pending', // pending, uploading, completed, error
+        progress: 0,
+        error: null
+      }));
+      
+      setFiles(prev => [...prev, ...filesWithMetadata]);
+    }
   };
 
   const removeFile = (fileId) => {
@@ -215,18 +250,6 @@ function MultiFileUploader(props) {
         return;
       }
 
-      // Manejar error de archivo duplicado
-      if (error.response?.data?.error === 'duplicate_file') {
-        setFiles(prev => prev.map(f => 
-          f.id === fileData.id ? { 
-            ...f, 
-            status: 'error', 
-            error: error.response.data.message || 'This file has already been uploaded'
-          } : f
-        ));
-        return;
-      }
-
       console.error('Error uploading file:', error);
       setFiles(prev => prev.map(f => 
         f.id === fileData.id ? { 
@@ -242,7 +265,12 @@ function MultiFileUploader(props) {
     const pendingFiles = files.filter(f => f.status === 'pending');
     
     if (pendingFiles.length === 0) {
-      alert('No hay files pendientes para subir');
+      // Si no hay archivos pendientes pero hay duplicados, mostrar el modal
+      if (duplicateFiles.length > 0) {
+        setShowDuplicateModal(true);
+      } else {
+        alert('No hay files pendientes para subir');
+      }
       return;
     }
 
@@ -260,6 +288,11 @@ function MultiFileUploader(props) {
 
     // Notificar éxito y refrescar
     onSuccess();
+
+    // Si hubo archivos duplicados, mostrar el modal
+    if (duplicateFiles.length > 0) {
+      setShowDuplicateModal(true);
+    }
   };
 
   const cancelUpload = () => {
@@ -547,6 +580,58 @@ function MultiFileUploader(props) {
           </div>
         </div>
       </div>
+
+      {/* Modal de archivos duplicados */}
+      {showDuplicateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4" style={{ zIndex: 10000 }}>
+          <div className="bg-white rounded-lg shadow-2xl max-w-md w-full">
+            <div className="p-6">
+              <div className="flex items-center mb-4">
+                <div className="flex-shrink-0 w-12 h-12 rounded-full bg-yellow-100 flex items-center justify-center">
+                  <svg className="w-6 h-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <div className="ml-4">
+                  <h3 className="text-lg font-bold text-gray-900">Archivos Duplicados</h3>
+                  <p className="text-sm text-gray-600">Los siguientes archivos no fueron cargados</p>
+                </div>
+              </div>
+
+              <div className="mb-6">
+                <p className="text-sm text-gray-700 mb-3">
+                  Estos archivos ya existen en el sistema:
+                </p>
+                <div className="bg-gray-50 rounded-lg p-4 max-h-60 overflow-y-auto">
+                  <ul className="space-y-2">
+                    {duplicateFiles.map((fileName, index) => (
+                      <li key={index} className="flex items-start">
+                        <svg className="w-5 h-5 text-yellow-500 mr-2 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                        </svg>
+                        <span className="text-sm text-gray-700 break-all">{fileName}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+
+              <div className="flex justify-end">
+                <button
+                  onClick={() => {
+                    setShowDuplicateModal(false);
+                    setDuplicateFiles([]);
+                    onClose();
+                  }}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-semibold transition-colors"
+                >
+                  Entendido
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

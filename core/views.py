@@ -135,7 +135,7 @@ class PerfilViewSet(viewsets.ModelViewSet):
 class BroadcastViewSet(viewsets.ModelViewSet):
     serializer_class = BroadcastSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = ['repositorio', 'estado_transcodificacion', 'modulo', 'directorio']
+    filterset_fields = ['repositorio', 'estado_transcodificacion', 'modulo', 'directorio', 'nombre_original']
     search_fields = ['pizarra__producto', 'pizarra__version']
 
     def get_queryset(self):
