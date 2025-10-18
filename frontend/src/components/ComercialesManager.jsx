@@ -953,17 +953,17 @@ function ComercialesManager() {
             </div>
           ) : viewMode === 'simple' ? (
             /* View 1: SIMPLE - Thumbnail, original name, key, file size, upload date, status */
-            <div className="p-6">
-              <table className="w-full">
+            <div className="p-6 overflow-x-auto">
+              <table className="w-full table-fixed">
                 <thead className="bg-gray-100 border-b-2 border-gray-300">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">THUMBNAIL</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">ORIGINAL NAME</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-64">ORIGINAL NAME</th>
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">KEY</th>
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-28">FILE SIZE</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">UPLOAD DATE</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-36">UPLOAD DATE</th>
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-40">STATUS</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">ACTIONS</th>
+                    <th className="px-4 py-3 text-right text-xs font-bold text-gray-600 uppercase w-24">ACTIONS</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
@@ -1001,21 +1001,24 @@ function ComercialesManager() {
                                 e.stopPropagation();
                                 handleEditDirectory(item.data);
                               }}
-                              className="px-3 py-1.5 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors font-medium"
-                              title="Edit directory"
+                              className="p-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                              title="Edit"
                             >
-                              Edit
+                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h357l-80 80H200v560h560v-278l80-80v358q0 33-23.5 56.5T760-120H200Zm280-360ZM360-360v-170l367-367q12-12 27-18t30-6q16 0 30.5 6t26.5 18l56 57q11 12 17 26.5t6 29.5q0 15-5.5 29.5T897-728L530-360H360Zm481-424-56-56 56 56ZM440-440h56l232-232-28-28-29-28-231 231v57Zm260-260-29-28 29 28 28 28-28-28Z"/>
+                              </svg>
                             </button>
-                            {/* Delete button */}
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleDeleteDirectory(item.data.id);
                               }}
-                              className="px-3 py-1.5 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors font-medium"
-                              title="Delete directory"
+                              className="p-1.5 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
+                              title="Delete"
                             >
-                              Delete
+                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                <path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/>
+                              </svg>
                             </button>
                           </div>
                         </td>
@@ -1106,20 +1109,24 @@ function ComercialesManager() {
                         
                         {/* Actions */}
                         <td className="px-4 py-3">
-                          <div className="flex space-x-2">
+                          <div className="flex justify-end space-x-1">
                             <button
                               onClick={() => setEditingComercial(item.data)}
-                              className="px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors font-medium"
-                              title="Editar"
+                              className="p-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                              title="Edit"
                             >
-                              Editar
+                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h357l-80 80H200v560h560v-278l80-80v358q0 33-23.5 56.5T760-120H200Zm280-360ZM360-360v-170l367-367q12-12 27-18t30-6q16 0 30.5 6t26.5 18l56 57q11 12 17 26.5t6 29.5q0 15-5.5 29.5T897-728L530-360H360Zm481-424-56-56 56 56ZM440-440h56l232-232-28-28-29-28-231 231v57Zm260-260-29-28 29 28 28 28-28-28Z"/>
+                              </svg>
                             </button>
                             <button
                               onClick={() => handleDelete(item.data.id)}
-                              className="px-2 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors font-medium"
-                              title="Eliminar"
+                              className="p-1.5 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
+                              title="Delete"
                             >
-                              Eliminar
+                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                <path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/>
+                              </svg>
                             </button>
                           </div>
                         </td>
@@ -1131,19 +1138,19 @@ function ComercialesManager() {
             </div>
           ) : viewMode === 'list' ? (
             /* Vista 2: LISTA COMPLETA - Todos los campos */
-            <div className="p-6">
-              <table className="w-full">
+            <div className="p-6 overflow-x-auto">
+              <table className="w-full table-fixed">
                 <thead className="bg-gray-100 border-b-2 border-gray-300">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">THUMBNAIL</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">CLIENT</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">AGENCY</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">PRODUCT</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">VERSION</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">TIME</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">TYPE</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">DATE</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">ACTIONS</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-40">CLIENT</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-40">AGENCY</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-48">PRODUCT</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">VERSION</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-24">TIME</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">TYPE</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-36">DATE</th>
+                    <th className="px-4 py-3 text-right text-xs font-bold text-gray-600 uppercase w-80">ACTIONS</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
@@ -1181,10 +1188,12 @@ function ComercialesManager() {
                                 e.stopPropagation();
                                 handleEditDirectory(item.data);
                               }}
-                              className="px-3 py-1.5 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors font-medium"
-                              title="Editar directorio"
+                              className="p-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                              title="Edit"
                             >
-                              Editar
+                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h357l-80 80H200v560h560v-278l80-80v358q0 33-23.5 56.5T760-120H200Zm280-360ZM360-360v-170l367-367q12-12 27-18t30-6q16 0 30.5 6t26.5 18l56 57q11 12 17 26.5t6 29.5q0 15-5.5 29.5T897-728L530-360H360Zm481-424-56-56 56 56ZM440-440h56l232-232-28-28-29-28-231 231v57Zm260-260-29-28 29 28 28 28-28-28Z"/>
+                              </svg>
                             </button>
                             {/* Botón Eliminar */}
                             <button
@@ -1192,10 +1201,12 @@ function ComercialesManager() {
                                 e.stopPropagation();
                                 handleDeleteDirectory(item.data.id);
                               }}
-                              className="px-3 py-1.5 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors font-medium"
-                              title="Eliminar directorio"
+                              className="p-1.5 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
+                              title="Delete"
                             >
-                              Eliminar
+                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                <path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/>
+                              </svg>
                             </button>
                           </div>
                         </td>
@@ -1255,61 +1266,75 @@ function ComercialesManager() {
                           {new Date(item.data.fecha_subida).toLocaleDateString('es-MX')}
                         </td>
                         <td className="px-4 py-3 text-sm">
-                          <div className="flex space-x-1">
+                          <div className="flex justify-end space-x-1">
                             <button
                               onClick={() => setEditingComercial(item.data)}
-                              className="px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
-                              title="Editar"
+                              className="p-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                              title="Edit"
                             >
-                              Editar
+                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h357l-80 80H200v560h560v-278l80-80v358q0 33-23.5 56.5T760-120H200Zm280-360ZM360-360v-170l367-367q12-12 27-18t30-6q16 0 30.5 6t26.5 18l56 57q11 12 17 26.5t6 29.5q0 15-5.5 29.5T897-728L530-360H360Zm481-424-56-56 56 56ZM440-440h56l232-232-28-28-29-28-231 231v57Zm260-260-29-28 29 28 28 28-28-28Z"/>
+                              </svg>
                             </button>
                             {item.data.estado_transcodificacion === 'COMPLETADO' && (
                               <button 
                                 onClick={() => handlePlay(item.data)}
-                                className="px-2 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600 transition-colors" 
+                                className="p-1.5 bg-green-500 text-white rounded hover:bg-green-600 transition-colors"
                                 title="Reproducir"
                               >
-                                Play
+                                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                  <path d="M320-200v-560l440 280-440 280Z"/>
+                                </svg>
                               </button>
                             )}
                             <button 
                               onClick={() => setSharingComercial(item.data)}
-                              className="px-2 py-1 text-xs bg-indigo-500 text-white rounded hover:bg-indigo-600 transition-colors" 
+                              className="p-1.5 bg-indigo-500 text-white rounded hover:bg-indigo-600 transition-colors"
                               title="Compartir"
                             >
-                              Share
+                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                <path d="M720-80q-50 0-85-35t-35-85q0-7 1-14.5t3-13.5L322-392q-17 15-38 23.5t-44 8.5q-50 0-85-35t-35-85q0-50 35-85t85-35q23 0 44 8.5t38 23.5l282-164q-2-6-3-13.5t-1-14.5q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-23 0-44-8.5T638-672L356-508q2 6 3 13.5t1 14.5q0 7-1 14.5t-3 13.5l282 164q17-15 38-23.5t44-8.5q50 0 85 35t35 85q0 50-35 85t-85 35Z"/>
+                              </svg>
                             </button>
                             {item.data.estado_transcodificacion === 'COMPLETADO' && (
                               <button 
                                 onClick={() => setEncodingComercial(item.data)}
-                                className="px-2 py-1 text-xs bg-yellow-500 text-white rounded hover:bg-yellow-600 transition-colors" 
+                                className="p-1.5 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition-colors"
                                 title="Codificar"
                               >
-                                Encode
+                                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                  <path d="M512-120v-71q90-13 149-85.5T720-440q0-100-70-170t-170-70q-100 0-170 70t-70 170q0 91 59 163.5T448-191v71q-123-14-203.5-105.5T164-440q0-134 93-227t227-93q134 0 227 93t93 227q0 123-80.5 214.5T512-120Zm-32-168v-304q0-8.5 5.75-14.25T500-612q8.5 0 14.25 5.75T520-592v304q0 8.5-5.75 14.25T500-268q-8.5 0-14.25-5.75T480-288Z"/>
+                                </svg>
                               </button>
                             )}
                             {item.data.estado_transcodificacion === 'COMPLETADO' && item.data.ruta_h264 && (
                               <button 
                                 onClick={() => handleDownload(item.data, 'h264')}
-                                className="px-2 py-1 text-xs bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors" 
+                                className="p-1.5 bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors"
                                 title="Descargar H.264"
                               >
-                                H.264
+                                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                  <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
+                                </svg>
                               </button>
                             )}
                             <button 
                               onClick={() => handleDownload(item.data, 'original')}
-                              className="px-2 py-1 text-xs bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors" 
+                              className="p-1.5 bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors"
                               title="Descargar Original"
                             >
-                              Download
+                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
+                              </svg>
                             </button>
                             <button
                               onClick={() => handleDelete(item.data.id)}
-                              className="px-2 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
-                              title="Eliminar"
+                              className="p-1.5 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
+                              title="Delete"
                             >
-                              Delete
+                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                <path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/>
+                              </svg>
                             </button>
                           </div>
                         </td>
@@ -1391,62 +1416,76 @@ function ComercialesManager() {
                       
                       {/* Actions */}
                       <div className="flex justify-between items-center pt-2 border-t border-gray-100">
-                        <div className="flex space-x-2">
+                        <div className="flex space-x-1">
                           <button
                             onClick={() => setEditingComercial(comercial)}
-                            className="text-blue-600 hover:text-blue-800 text-sm"
-                            title="Editar"
+                            className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                            title="Edit"
                           >
-                            ✏️
+                            <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
+                              <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h357l-80 80H200v560h560v-278l80-80v358q0 33-23.5 56.5T760-120H200Zm280-360ZM360-360v-170l367-367q12-12 27-18t30-6q16 0 30.5 6t26.5 18l56 57q11 12 17 26.5t6 29.5q0 15-5.5 29.5T897-728L530-360H360Zm481-424-56-56 56 56ZM440-440h56l232-232-28-28-29-28-231 231v57Zm260-260-29-28 29 28 28 28-28-28Z"/>
+                            </svg>
                           </button>
                           {comercial.estado_transcodificacion === 'COMPLETADO' && (
                             <button 
                               onClick={() => handlePlay(comercial)}
-                              className="text-green-600 hover:text-green-800 text-sm" 
+                              className="p-1 text-green-600 hover:bg-green-50 rounded transition-colors" 
                               title="Reproducir"
                             >
-                              ▶️
+                              <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
+                                <path d="M320-200v-560l440 280-440 280Z"/>
+                              </svg>
                             </button>
                           )}
                           <button 
                             onClick={() => setSharingComercial(comercial)}
-                            className="text-blue-500 hover:text-blue-700 text-sm" 
+                            className="p-1 text-indigo-600 hover:bg-indigo-50 rounded transition-colors" 
                             title="Compartir"
                           >
-                            🔗
+                            <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
+                              <path d="M720-80q-50 0-85-35t-35-85q0-7 1-14.5t3-13.5L322-392q-17 15-38 23.5t-44 8.5q-50 0-85-35t-35-85q0-50 35-85t85-35q23 0 44 8.5t38 23.5l282-164q-2-6-3-13.5t-1-14.5q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-23 0-44-8.5T638-672L356-508q2 6 3 13.5t1 14.5q0 7-1 14.5t-3 13.5l282 164q17-15 38-23.5t44-8.5q50 0 85 35t35 85q0 50-35 85t-85 35Z"/>
+                            </svg>
                           </button>
                           {comercial.estado_transcodificacion === 'COMPLETADO' && (
                             <button 
                               onClick={() => setEncodingComercial(comercial)}
-                              className="text-yellow-600 hover:text-yellow-800 text-sm" 
+                              className="p-1 text-yellow-600 hover:bg-yellow-50 rounded transition-colors" 
                               title="Codificar"
                             >
-                              🎬
+                              <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
+                                <path d="M512-120v-71q90-13 149-85.5T720-440q0-100-70-170t-170-70q-100 0-170 70t-70 170q0 91 59 163.5T448-191v71q-123-14-203.5-105.5T164-440q0-134 93-227t227-93q134 0 227 93t93 227q0 123-80.5 214.5T512-120Zm-32-168v-304q0-8.5 5.75-14.25T500-612q8.5 0 14.25 5.75T520-592v304q0 8.5-5.75 14.25T500-268q-8.5 0-14.25-5.75T480-288Z"/>
+                              </svg>
                             </button>
                           )}
                           {comercial.estado_transcodificacion === 'COMPLETADO' && comercial.ruta_h264 && (
                             <button 
                               onClick={() => handleDownload(comercial, 'h264')}
-                              className="text-orange-600 hover:text-orange-800 text-sm" 
+                              className="p-1 text-orange-600 hover:bg-orange-50 rounded transition-colors" 
                               title="Descargar H.264"
                             >
-                              📦
+                              <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
+                                <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
+                              </svg>
                             </button>
                           )}
                           <button 
                             onClick={() => handleDownload(comercial, 'original')}
-                            className="text-purple-600 hover:text-purple-800 text-sm" 
+                            className="p-1 text-purple-600 hover:bg-purple-50 rounded transition-colors" 
                             title="Descargar Original"
                           >
-                            ⬇️
+                            <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
+                              <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
+                            </svg>
                           </button>
                         </div>
                         <button
                           onClick={() => handleDelete(comercial.id)}
-                          className="text-red-600 hover:text-red-800 text-sm"
-                          title="Eliminar"
+                          className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                          title="Delete"
                         >
-                          🗑️
+                          <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
+                            <path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/>
+                          </svg>
                         </button>
                       </div>
                       

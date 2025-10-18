@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom';
 import Login from './components/Login';
 import RequireAuth from './components/RequireAuth';
@@ -10,27 +11,63 @@ import SharedPlayer from './components/SharedPlayer';
 
 // Admin area component
 function AdminArea() {
+  const [activeTab, setActiveTab] = useState('repositorios');
+
+  const renderContent = () => {
+    switch (activeTab) {
+      case 'repositorios':
+        return <RepositoriosManager />;
+      case 'usuarios':
+        return <UsuariosManager />;
+      case 'configuracion':
+        return <ConfiguracionManager />;
+      default:
+        return <RepositoriosManager />;
+    }
+  };
+
   return (
     <div className="bg-gray-100 min-h-screen flex flex-col">
       <Navbar isAdminArea={true} />
       <main className="flex-1 overflow-hidden">
         <div className="h-full p-6">
-          <div className="bg-white rounded-lg shadow-lg h-full">
+          <div className="bg-white rounded-lg shadow-lg h-full flex flex-col">
             <div className="border-b border-gray-200">
               <nav className="flex -mb-px">
-                <button className="px-6 py-4 text-sm font-medium text-blue-600 border-b-2 border-blue-600">
+                <button 
+                  onClick={() => setActiveTab('repositorios')}
+                  className={`px-6 py-4 text-sm font-medium ${
+                    activeTab === 'repositorios' 
+                      ? 'text-blue-600 border-b-2 border-blue-600' 
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
                   Repositorios
                 </button>
-                <button className="px-6 py-4 text-sm font-medium text-gray-600 hover:text-gray-800">
+                <button 
+                  onClick={() => setActiveTab('usuarios')}
+                  className={`px-6 py-4 text-sm font-medium ${
+                    activeTab === 'usuarios' 
+                      ? 'text-blue-600 border-b-2 border-blue-600' 
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
                   Usuarios
                 </button>
-                <button className="px-6 py-4 text-sm font-medium text-gray-600 hover:text-gray-800">
+                <button 
+                  onClick={() => setActiveTab('configuracion')}
+                  className={`px-6 py-4 text-sm font-medium ${
+                    activeTab === 'configuracion' 
+                      ? 'text-blue-600 border-b-2 border-blue-600' 
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
                   Configuración
                 </button>
               </nav>
             </div>
-            <div className="p-6">
-              <RepositoriosManager />
+            <div className="p-6 flex-1 overflow-auto">
+              {renderContent()}
             </div>
           </div>
         </div>
@@ -64,7 +101,7 @@ function App() {
     {
       path: '/admin',
       element: (
-        <RequireAuth requireAdmin={true}>
+        <RequireAuth>
           <AdminArea />
         </RequireAuth>
       ),
