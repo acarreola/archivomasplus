@@ -155,13 +155,22 @@ class BroadcastSerializer(serializers.ModelSerializer):
         except (json.JSONDecodeError, TypeError):
             pizarra_data = {}
         
+        # Convert all text fields in pizarra to uppercase (except fecha)
+        for key, value in pizarra_data.items():
+            if key != 'fecha' and isinstance(value, str):
+                pizarra_data[key] = value.upper()
+        
         # Asignamos el diccionario al campo JSONField del modelo
         validated_data['pizarra'] = pizarra_data
         
-        # Save original filename
+        # Save original filename in uppercase
         archivo = validated_data.get('archivo_original')
         if archivo and hasattr(archivo, 'name'):
             validated_data['nombre_original'] = archivo.name
+        
+        # Convert nombre_original to uppercase if present
+        if 'nombre_original' in validated_data and isinstance(validated_data['nombre_original'], str):
+            validated_data['nombre_original'] = validated_data['nombre_original'].upper()
         
         broadcast = Broadcast.objects.create(**validated_data)
         return broadcast
@@ -172,9 +181,17 @@ class BroadcastSerializer(serializers.ModelSerializer):
             pizarra_str = validated_data.pop('pizarra')
             try:
                 pizarra_data = json.loads(pizarra_str) if isinstance(pizarra_str, str) else pizarra_str
+                # Convert all text fields in pizarra to uppercase (except fecha)
+                for key, value in pizarra_data.items():
+                    if key != 'fecha' and isinstance(value, str):
+                        pizarra_data[key] = value.upper()
                 instance.pizarra = pizarra_data
             except json.JSONDecodeError:
                 pass
+        
+        # Convert nombre_original to uppercase if present
+        if 'nombre_original' in validated_data and isinstance(validated_data['nombre_original'], str):
+            validated_data['nombre_original'] = validated_data['nombre_original'].upper()
         
         # Update other fields
         for attr, value in validated_data.items():

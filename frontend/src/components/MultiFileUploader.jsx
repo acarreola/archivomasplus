@@ -215,6 +215,18 @@ function MultiFileUploader(props) {
         return;
       }
 
+      // Manejar error de archivo duplicado
+      if (error.response?.data?.error === 'duplicate_file') {
+        setFiles(prev => prev.map(f => 
+          f.id === fileData.id ? { 
+            ...f, 
+            status: 'error', 
+            error: error.response.data.message || 'This file has already been uploaded'
+          } : f
+        ));
+        return;
+      }
+
       console.error('Error uploading file:', error);
       setFiles(prev => prev.map(f => 
         f.id === fileData.id ? { 
