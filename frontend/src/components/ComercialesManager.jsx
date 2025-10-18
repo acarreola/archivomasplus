@@ -48,7 +48,7 @@ function ComercialesManager() {
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 15;
+  const itemsPerPage = 25;
 
   // Processing status
   const [processingVideos, setProcessingVideos] = useState([]);
@@ -235,11 +235,6 @@ function ComercialesManager() {
     // type puede ser 'h264', 'h265' o 'original'
     let url, filename;
     
-    // Obtener nombre base del archivo (sin extensión)
-    const nombreOriginal = comercial.nombre_original 
-      ? comercial.nombre_original.replace(/\.[^/.]+$/, '') // Remover extensión del original
-      : (comercial.pizarra?.producto || 'video');
-    
     if (type === 'original') {
       // archivo_original ya viene con /media/ incluido desde el serializer
       const archivoUrl = comercial.archivo_original.startsWith('http') 
@@ -247,15 +242,20 @@ function ComercialesManager() {
         : `http://localhost:8000${comercial.archivo_original.startsWith('/') ? '' : '/'}${comercial.archivo_original}`;
       url = archivoUrl;
       
-      // Obtener extensión original
+      // Construir nombre: CLAVE_NOMBREORIGINAL.ext
+      const clave = comercial.repositorio_clave || comercial.repositorio_folio || 'XXX';
+      const nombreOriginal = comercial.nombre_original 
+        ? comercial.nombre_original.replace(/\.[^/.]+$/, '') // Remover extensión del original
+        : (comercial.pizarra?.producto || 'comercial');
       const extension = comercial.archivo_original.substring(comercial.archivo_original.lastIndexOf('.'));
-      filename = `${nombreOriginal}${extension}`;
+      
+      filename = `${clave}_${nombreOriginal}${extension}`;
     } else if (type === 'h264') {
       url = `http://localhost:8000/media/${comercial.ruta_h264}`;
-      filename = `${nombreOriginal}_H264.mp4`;
+      filename = `${comercial.pizarra?.producto || 'comercial'}_h264.mp4`;
     } else if (type === 'h265' || type === 'proxy') {
       url = `http://localhost:8000/media/${comercial.ruta_proxy}`;
-      filename = `${nombreOriginal}_H265.mp4`;
+      filename = `${comercial.pizarra?.producto || 'comercial'}_h265.mp4`;
     }
     
     try {
@@ -800,7 +800,7 @@ function ComercialesManager() {
 
         {/* View Mode Selector */}
         <div className="bg-white px-6 py-3 border-b">
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center space-x-4 mb-2">
             <div className="flex space-x-2">
               {/* View 1: Simple */}
               <button
@@ -812,9 +812,7 @@ function ComercialesManager() {
                 }`}
                 title="Simple view"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                  <path d="M160-240q-17 0-28.5-11.5T120-280q0-17 11.5-28.5T160-320h640q17 0 28.5 11.5T840-280q0 17-11.5 28.5T800-240H160Zm0-200q-17 0-28.5-11.5T120-480q0-17 11.5-28.5T160-520h640q17 0 28.5 11.5T840-480q0 17-11.5 28.5T800-440H160Zm0-200q-17 0-28.5-11.5T120-680q0-17 11.5-28.5T160-720h640q17 0 28.5 11.5T840-680q0 17-11.5 28.5T800-640H160Z"/>
-                </svg>
+                <span>📄</span>
                 <span className="text-sm">Simple</span>
               </button>
               
@@ -828,9 +826,7 @@ function ComercialesManager() {
                 }`}
                 title="Full list view"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                  <path d="M160-240q-17 0-28.5-11.5T120-280q0-17 11.5-28.5T160-320h160q17 0 28.5 11.5T360-280q0 17-11.5 28.5T320-240H160Zm0-200q-17 0-28.5-11.5T120-480q0-17 11.5-28.5T160-520h160q17 0 28.5 11.5T360-480q0 17-11.5 28.5T320-440H160Zm0-200q-17 0-28.5-11.5T120-680q0-17 11.5-28.5T160-720h160q17 0 28.5 11.5T360-680q0 17-11.5 28.5T320-640H160Zm360 400q-17 0-28.5-11.5T480-280q0-17 11.5-28.5T520-320h280q17 0 28.5 11.5T840-280q0 17-11.5 28.5T800-240H520Zm0-200q-17 0-28.5-11.5T480-480q0-17 11.5-28.5T520-520h280q17 0 28.5 11.5T840-480q0 17-11.5 28.5T800-440H520Zm0-200q-17 0-28.5-11.5T480-680q0-17 11.5-28.5T520-720h280q17 0 28.5 11.5T840-680q0 17-11.5 28.5T800-640H520Z"/>
-                </svg>
+                <span>📋</span>
                 <span className="text-sm">Full</span>
               </button>
               
@@ -844,74 +840,9 @@ function ComercialesManager() {
                 }`}
                 title="Grid view with Thumbnails"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                  <path d="M200-120q-33 0-56.5-23.5T120-200v-160q0-33 23.5-56.5T200-440h160q33 0 56.5 23.5T440-360v160q0 33-23.5 56.5T360-120H200Zm0-400q-33 0-56.5-23.5T120-600v-160q0-33 23.5-56.5T200-840h160q33 0 56.5 23.5T440-760v160q0 33-23.5 56.5T360-520H200Zm400 400q-33 0-56.5-23.5T520-200v-160q0-33 23.5-56.5T600-440h160q33 0 56.5 23.5T840-360v160q0 33-23.5 56.5T760-120H600Zm0-400q-33 0-56.5-23.5T520-600v-160q0-33 23.5-56.5T600-840h160q33 0 56.5 23.5T840-760v160q0 33-23.5 56.5T760-520H600ZM200-200h160v-160H200v160Zm400 0h160v-160H600v160ZM200-600h160v-160H200v160Zm400 0h160v-160H600v160ZM360-600ZM600-600Zm0 240Zm-240 0Z"/>
-                </svg>
                 <span className="text-sm">Thumbnails</span>
               </button>
             </div>
-
-            {/* Pagination Controls */}
-            {filteredComerciales.length > 0 && (
-              <div className="flex items-center space-x-3">
-                <span className="text-sm text-gray-600">
-                  {((currentPage - 1) * itemsPerPage) + 1} - {Math.min(currentPage * itemsPerPage, filteredComerciales.length)} of {filteredComerciales.length}
-                </span>
-                <div className="flex space-x-1">
-                  <button
-                    onClick={() => setCurrentPage(1)}
-                    disabled={currentPage === 1}
-                    className={`px-3 py-1 rounded ${
-                      currentPage === 1
-                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                    }`}
-                    title="First page"
-                  >
-                    «
-                  </button>
-                  <button
-                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                    disabled={currentPage === 1}
-                    className={`px-3 py-1 rounded ${
-                      currentPage === 1
-                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                    }`}
-                    title="Previous page"
-                  >
-                    ‹
-                  </button>
-                  <span className="px-3 py-1 bg-blue-600 text-white rounded font-medium">
-                    {currentPage}
-                  </span>
-                  <button
-                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                    disabled={currentPage === totalPages}
-                    className={`px-3 py-1 rounded ${
-                      currentPage === totalPages
-                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                    }`}
-                    title="Next page"
-                  >
-                    ›
-                  </button>
-                  <button
-                    onClick={() => setCurrentPage(totalPages)}
-                    disabled={currentPage === totalPages}
-                    className={`px-3 py-1 rounded ${
-                      currentPage === totalPages
-                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                    }`}
-                    title="Last page"
-                  >
-                    »
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Breadcrumb Navigation */}
@@ -1022,19 +953,17 @@ function ComercialesManager() {
             </div>
           ) : viewMode === 'simple' ? (
             /* View 1: SIMPLE - Thumbnail, original name, key, file size, upload date, status */
-            <div className="p-6 overflow-x-auto">
+            <div className="p-6">
               <table className="w-full">
                 <thead className="bg-gray-100 border-b-2 border-gray-300">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase whitespace-nowrap" style={{width: '120px'}}>THUMBNAIL</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase whitespace-nowrap">ORIGINAL NAME</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase whitespace-nowrap">KEY</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase whitespace-nowrap">FILE SIZE</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase whitespace-nowrap">UPLOAD DATE</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase whitespace-nowrap">STATUS</th>
-                    <th className="pl-1 pr-4 py-3 text-xs font-bold text-gray-600 uppercase whitespace-nowrap">
-                      <div className="flex justify-end pr-12">ACTIONS</div>
-                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">THUMBNAIL</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">ORIGINAL NAME</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">KEY</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-28">FILE SIZE</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">UPLOAD DATE</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-40">STATUS</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">ACTIONS</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
@@ -1095,7 +1024,7 @@ function ComercialesManager() {
                       // Render simple Broadcast row
                       <tr key={`com-${item.data.id}`} className="hover:bg-blue-50 transition-colors">
                         {/* Thumbnail */}
-                        <td className="px-4 py-3 whitespace-nowrap" style={{width: '120px'}}>
+                        <td className="px-4 py-3">
                           <div className="relative w-24 h-14 bg-gray-900 rounded overflow-hidden shadow-sm">
                             {item.data.thumbnail_url ? (
                               <img 
@@ -1119,24 +1048,28 @@ function ComercialesManager() {
                         </td>
                         
                         {/* Nombre Original */}
-                        <td className="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">
-                          {item.data.nombre_original || item.data.pizarra?.producto || 'N/A'}
+                        <td className="px-4 py-3">
+                          <div className="flex items-center space-x-2">
+                            <span className="text-sm font-medium text-gray-900">
+                              {item.data.nombre_original || item.data.pizarra?.producto || 'N/A'}
+                            </span>
+                          </div>
                         </td>
                         
                         {/* Clave (UUID corto) */}
-                        <td className="px-4 py-3 whitespace-nowrap">
+                        <td className="px-4 py-3">
                           <code className="text-xs bg-gray-100 px-2 py-1 rounded font-mono text-gray-700">
                             {item.data.id.split('-')[0]}
                           </code>
                         </td>
                         
                         {/* File Size */}
-                        <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">
+                        <td className="px-4 py-3 text-sm text-gray-700">
                           {formatFileSize(item.data.file_size)}
                         </td>
                         
                         {/* Fecha de Carga */}
-                        <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">
+                        <td className="px-4 py-3 text-sm text-gray-700">
                           {(() => {
                             const date = new Date(item.data.fecha_subida);
                             const dateStr = date.toLocaleDateString('es-MX', {
@@ -1154,7 +1087,7 @@ function ComercialesManager() {
                         </td>
                         
                         {/* Status */}
-                        <td className="px-4 py-3 whitespace-nowrap">
+                        <td className="px-4 py-3">
                           <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
                             item.data.estado_transcodificacion === 'COMPLETADO' ? 'bg-green-100 text-green-800' :
                             item.data.estado_transcodificacion === 'PROCESANDO' ? 'bg-yellow-100 text-yellow-800' :
@@ -1172,91 +1105,21 @@ function ComercialesManager() {
                         </td>
                         
                         {/* Actions */}
-                        <td className="pl-1 pr-4 py-3 text-sm whitespace-nowrap">
-                          <div className="flex justify-end space-x-1">
+                        <td className="px-4 py-3">
+                          <div className="flex space-x-2">
                             <button
                               onClick={() => setEditingComercial(item.data)}
-                              className="relative p-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors group"
+                              className="px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors font-medium"
+                              title="Editar"
                             >
-                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                                <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h357l-80 80H200v560h560v-278l80-80v358q0 33-23.5 56.5T760-120H200Zm280-360ZM360-360v-170l367-367q12-12 27-18t30-6q16 0 30.5 6t26.5 18l56 57q11 12 17 26.5t6 29.5q0 15-5.5 29.5T897-728L530-360H360Zm481-424-56-56 56 56ZM440-440h56l232-232-28-28-29-28-231 231v57Zm260-260-29-28 29 28 28 28-28-28Z"/>
-                              </svg>
-                              <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-xs bg-gray-900 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                                Editar
-                              </span>
-                            </button>
-                            {item.data.estado_transcodificacion === 'COMPLETADO' && (
-                              <button 
-                                onClick={() => handlePlay(item.data)}
-                                className="relative p-1.5 bg-green-500 text-white rounded hover:bg-green-600 transition-colors group"
-                              >
-                                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                                  <path d="M320-200v-560l440 280-440 280Zm80-280Zm0 134 210-134-210-134v268Z"/>
-                                </svg>
-                                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-xs bg-gray-900 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                                  Reproducir
-                                </span>
-                              </button>
-                            )}
-                            <button 
-                              onClick={() => setSharingComercial(item.data)}
-                              className="relative p-1.5 bg-indigo-500 text-white rounded hover:bg-indigo-600 transition-colors group"
-                            >
-                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                                <path d="M680-80q-50 0-85-35t-35-85q0-6 3-28L282-392q-16 15-37 23.5t-45 8.5q-50 0-85-35t-35-85q0-50 35-85t85-35q24 0 45 8.5t37 23.5l281-164q-2-7-2.5-13.5T560-760q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-24 0-45-8.5T598-672L317-508q2 7 2.5 13.5t.5 14.5q0 8-.5 14.5T317-452l281 164q16-15 37-23.5t45-8.5q50 0 85 35t35 85q0 50-35 85t-85 35Zm0-80q17 0 28.5-11.5T720-200q0-17-11.5-28.5T680-240q-17 0-28.5 11.5T640-200q0 17 11.5 28.5T680-160ZM200-440q17 0 28.5-11.5T240-480q0-17-11.5-28.5T200-520q-17 0-28.5 11.5T160-480q0 17 11.5 28.5T200-440Zm480-280q17 0 28.5-11.5T720-760q0-17-11.5-28.5T680-800q-17 0-28.5 11.5T640-760q0 17 11.5 28.5T680-720Zm0 520ZM200-480Zm480-280Z"/>
-                              </svg>
-                              <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-xs bg-gray-900 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                                Compartir
-                              </span>
-                            </button>
-                            {item.data.estado_transcodificacion === 'COMPLETADO' && (
-                              <button 
-                                onClick={() => setEncodingComercial(item.data)}
-                                className="relative p-1.5 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition-colors group"
-                              >
-                                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                                  <path d="M640-40 480-200l56-58 64 64v-86H360q-33 0-56.5-23.5T280-360v-240H80v-80h200v-86l-64 64-56-58 160-160 160 160-56 58-64-64v406h520v80H680v86l64-64 56 58L640-40Zm-40-400v-160H440v-80h160q33 0 56.5 23.5T680-600v160h-80Z"/>
-                                </svg>
-                                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-xs bg-gray-900 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                                  Codificar
-                                </span>
-                              </button>
-                            )}
-                            {item.data.estado_transcodificacion === 'COMPLETADO' && item.data.ruta_h264 && (
-                              <button 
-                                onClick={() => handleDownload(item.data, 'h264')}
-                                className="relative p-1.5 bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors group"
-                              >
-                                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 0 24 24" width="20px" fill="currentColor">
-                                  <path d="M0 0h24v24H0V0z" fill="none"/>
-                                  <path d="M9 10v8l7-4zm12-4h-7.58l3.29-3.29L16 2l-4 4h-.03l-4-4-.69.71L10.56 6H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 14H3V8h18v12z"/>
-                                </svg>
-                                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-xs bg-gray-900 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                                  H.264
-                                </span>
-                              </button>
-                            )}
-                            <button 
-                              onClick={() => handleDownload(item.data, 'original')}
-                              className="relative p-1.5 bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors group"
-                            >
-                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                                <path d="M480-160q-100 0-170-70t-70-170h80q0 66 47 113t113 47q66 0 113-47t47-113h80q0 100-70 170t-170 70Zm0-201L320-521l56-57 64 64v-246h80v246l64-64 56 57-160 160Z"/>
-                              </svg>
-                              <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-xs bg-gray-900 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                                Descargar
-                              </span>
+                              Editar
                             </button>
                             <button
                               onClick={() => handleDelete(item.data.id)}
-                              className="relative p-1.5 bg-red-500 text-white rounded hover:bg-red-600 transition-colors group"
+                              className="px-2 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors font-medium"
+                              title="Eliminar"
                             >
-                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                                <path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/>
-                              </svg>
-                              <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-xs bg-gray-900 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                                Eliminar
-                              </span>
+                              Eliminar
                             </button>
                           </div>
                         </td>
@@ -1268,21 +1131,19 @@ function ComercialesManager() {
             </div>
           ) : viewMode === 'list' ? (
             /* Vista 2: LISTA COMPLETA - Todos los campos */
-            <div className="p-6 overflow-x-auto">
+            <div className="p-6">
               <table className="w-full">
                 <thead className="bg-gray-100 border-b-2 border-gray-300">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase whitespace-nowrap" style={{width: '120px'}}>THUMBNAIL</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase whitespace-nowrap">CLIENT</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase whitespace-nowrap">PRODUCT</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase whitespace-nowrap">AGENCY</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase whitespace-nowrap">VERSION</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase whitespace-nowrap">TIME</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase whitespace-nowrap">TYPE</th>
-                    <th className="pl-4 pr-1 py-3 text-left text-xs font-bold text-gray-600 uppercase whitespace-nowrap">DATE</th>
-                    <th className="pl-1 pr-4 py-3 text-xs font-bold text-gray-600 uppercase whitespace-nowrap">
-                      <div className="flex justify-end pr-12">ACTIONS</div>
-                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">THUMBNAIL</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">CLIENT</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">AGENCY</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">PRODUCT</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">VERSION</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">TIME</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">TYPE</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">DATE</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">ACTIONS</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
@@ -1343,7 +1204,7 @@ function ComercialesManager() {
                       // Renderizar Comercial como fila normal
                       <tr key={`com-${item.data.id}`} className="hover:bg-blue-50 transition-colors">
                         {/* Thumbnail */}
-                        <td className="px-4 py-3" style={{width: '120px'}}>
+                        <td className="px-4 py-3">
                         <div className="relative w-24 h-14 bg-gray-900 rounded overflow-hidden group cursor-pointer" onClick={() => item.data.estado_transcodificacion === 'COMPLETADO' && handlePlay(item.data)}>
                           {item.data.thumbnail_url ? (
                             <img 
@@ -1370,112 +1231,85 @@ function ComercialesManager() {
                           )}
                         </div>
                       </td>
-                        <td className="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">
-                          {item.data.pizarra?.cliente || '-'}
+                        <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                          {item.data.pizarra?.cliente || item.data.repositorio_nombre}
                         </td>
-                        <td className="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">
-                          {item.data.pizarra?.producto || '-'}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">
+                        <td className="px-4 py-3 text-sm text-gray-700">
                           {item.data.pizarra?.agencia || '-'}
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">
+                        <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                          {item.data.pizarra?.producto || 'N/A'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-700">
                           {item.data.pizarra?.version || '-'}
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">
+                        <td className="px-4 py-3 text-sm text-gray-700">
                           {item.data.pizarra?.duracion || '-'}
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">
-                          {item.data.pizarra?.formato || '-'}
+                        <td className="px-4 py-3 text-sm">
+                          <span className={`px-2 py-1 text-xs rounded-full ${getEstadoBadge(item.data.estado_transcodificacion)}`}>
+                            {item.data.estado_transcodificacion}
+                          </span>
                         </td>
-                        <td className="pl-4 pr-1 py-3 text-sm text-gray-600 whitespace-nowrap">
-                          {item.data.pizarra?.fecha ? new Date(item.data.pizarra.fecha).toLocaleDateString('es-MX') : '-'}
+                        <td className="px-4 py-3 text-sm text-gray-600">
+                          {new Date(item.data.fecha_subida).toLocaleDateString('es-MX')}
                         </td>
-                        <td className="pl-1 pr-4 py-3 text-sm whitespace-nowrap">
-                          <div className="flex justify-end space-x-1">
+                        <td className="px-4 py-3 text-sm">
+                          <div className="flex space-x-1">
                             <button
                               onClick={() => setEditingComercial(item.data)}
-                              className="relative p-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors group"
+                              className="px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                              title="Editar"
                             >
-                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                                <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h357l-80 80H200v560h560v-278l80-80v358q0 33-23.5 56.5T760-120H200Zm280-360ZM360-360v-170l367-367q12-12 27-18t30-6q16 0 30.5 6t26.5 18l56 57q11 12 17 26.5t6 29.5q0 15-5.5 29.5T897-728L530-360H360Zm481-424-56-56 56 56ZM440-440h56l232-232-28-28-29-28-231 231v57Zm260-260-29-28 29 28 28 28-28-28Z"/>
-                              </svg>
-                              <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-xs bg-gray-900 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                                Editar
-                              </span>
+                              Editar
                             </button>
                             {item.data.estado_transcodificacion === 'COMPLETADO' && (
                               <button 
                                 onClick={() => handlePlay(item.data)}
-                                className="relative p-1.5 bg-green-500 text-white rounded hover:bg-green-600 transition-colors group"
+                                className="px-2 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600 transition-colors" 
+                                title="Reproducir"
                               >
-                                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                                  <path d="M320-200v-560l440 280-440 280Zm80-280Zm0 134 210-134-210-134v268Z"/>
-                                </svg>
-                                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-xs bg-gray-900 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                                  Reproducir
-                                </span>
+                                Play
                               </button>
                             )}
                             <button 
                               onClick={() => setSharingComercial(item.data)}
-                              className="relative p-1.5 bg-indigo-500 text-white rounded hover:bg-indigo-600 transition-colors group"
+                              className="px-2 py-1 text-xs bg-indigo-500 text-white rounded hover:bg-indigo-600 transition-colors" 
+                              title="Compartir"
                             >
-                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                                <path d="M680-80q-50 0-85-35t-35-85q0-6 3-28L282-392q-16 15-37 23.5t-45 8.5q-50 0-85-35t-35-85q0-50 35-85t85-35q24 0 45 8.5t37 23.5l281-164q-2-7-2.5-13.5T560-760q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-24 0-45-8.5T598-672L317-508q2 7 2.5 13.5t.5 14.5q0 8-.5 14.5T317-452l281 164q16-15 37-23.5t45-8.5q50 0 85 35t35 85q0 50-35 85t-85 35Zm0-80q17 0 28.5-11.5T720-200q0-17-11.5-28.5T680-240q-17 0-28.5 11.5T640-200q0 17 11.5 28.5T680-160ZM200-440q17 0 28.5-11.5T240-480q0-17-11.5-28.5T200-520q-17 0-28.5 11.5T160-480q0 17 11.5 28.5T200-440Zm480-280q17 0 28.5-11.5T720-760q0-17-11.5-28.5T680-800q-17 0-28.5 11.5T640-760q0 17 11.5 28.5T680-720Zm0 520ZM200-480Zm480-280Z"/>
-                              </svg>
-                              <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-xs bg-gray-900 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                                Compartir
-                              </span>
+                              Share
                             </button>
                             {item.data.estado_transcodificacion === 'COMPLETADO' && (
                               <button 
                                 onClick={() => setEncodingComercial(item.data)}
-                                className="relative p-1.5 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition-colors group"
+                                className="px-2 py-1 text-xs bg-yellow-500 text-white rounded hover:bg-yellow-600 transition-colors" 
+                                title="Codificar"
                               >
-                                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                                  <path d="M640-40 480-200l56-58 64 64v-86H360q-33 0-56.5-23.5T280-360v-240H80v-80h200v-86l-64 64-56-58 160-160 160 160-56 58-64-64v406h520v80H680v86l64-64 56 58L640-40Zm-40-400v-160H440v-80h160q33 0 56.5 23.5T680-600v160h-80Z"/>
-                                </svg>
-                                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-xs bg-gray-900 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                                  Codificar
-                                </span>
+                                Encode
                               </button>
                             )}
                             {item.data.estado_transcodificacion === 'COMPLETADO' && item.data.ruta_h264 && (
                               <button 
                                 onClick={() => handleDownload(item.data, 'h264')}
-                                className="relative p-1.5 bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors group"
+                                className="px-2 py-1 text-xs bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors" 
+                                title="Descargar H.264"
                               >
-                                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 0 24 24" width="20px" fill="currentColor">
-                                  <path d="M0 0h24v24H0V0z" fill="none"/>
-                                  <path d="M9 10v8l7-4zm12-4h-7.58l3.29-3.29L16 2l-4 4h-.03l-4-4-.69.71L10.56 6H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 14H3V8h18v12z"/>
-                                </svg>
-                                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-xs bg-gray-900 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                                  H.264
-                                </span>
+                                H.264
                               </button>
                             )}
                             <button 
                               onClick={() => handleDownload(item.data, 'original')}
-                              className="relative p-1.5 bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors group"
+                              className="px-2 py-1 text-xs bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors" 
+                              title="Descargar Original"
                             >
-                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                                <path d="M480-160q-100 0-170-70t-70-170h80q0 66 47 113t113 47q66 0 113-47t47-113h80q0 100-70 170t-170 70Zm0-201L320-521l56-57 64 64v-246h80v246l64-64 56 57-160 160Z"/>
-                              </svg>
-                              <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-xs bg-gray-900 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                                Descargar
-                              </span>
+                              Download
                             </button>
                             <button
                               onClick={() => handleDelete(item.data.id)}
-                              className="relative p-1.5 bg-red-500 text-white rounded hover:bg-red-600 transition-colors group"
+                              className="px-2 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
+                              title="Eliminar"
                             >
-                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                                <path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/>
-                              </svg>
-                              <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-xs bg-gray-900 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-                                Eliminar
-                              </span>
+                              Delete
                             </button>
                           </div>
                         </td>
@@ -1501,7 +1335,7 @@ function ComercialesManager() {
                       {comercial.thumbnail_url ? (
                         <img 
                           src={comercial.thumbnail_url}
-                          alt={comercial.nombre_original || 'Thumbnail'}
+                          alt={comercial.pizarra?.producto || 'Thumbnail'}
                           className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
                           onClick={() => setEditingComercial(comercial)}
                         />
@@ -1534,88 +1368,85 @@ function ComercialesManager() {
                           {comercial.estado_transcodificacion}
                         </span>
                       </div>
+
+                      {/* Duración */}
+                      {comercial.pizarra?.duracion && (
+                        <div className="absolute bottom-2 right-2 bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded">
+                          {comercial.pizarra.duracion}
+                        </div>
+                      )}
                     </div>
 
                     {/* Info */}
                     <div className="p-3">
-                      <h3 className="font-semibold text-sm text-gray-900 truncate mb-1" title={comercial.nombre_original || comercial.pizarra?.producto}>
-                        {comercial.nombre_original || comercial.pizarra?.producto || 'Sin título'}
+                      <h3 className="font-semibold text-sm text-gray-900 truncate mb-1">
+                        {comercial.pizarra?.producto || 'Sin título'}
                       </h3>
-                      <p className="text-xs text-gray-600 mb-2">
-                        {formatFileSize(comercial.file_size)}
+                      <p className="text-xs text-gray-600 truncate mb-1">
+                        {comercial.pizarra?.cliente || comercial.repositorio_nombre}
+                      </p>
+                      <p className="text-xs text-gray-500 truncate mb-2">
+                        {comercial.pizarra?.agencia || '-'}
                       </p>
                       
                       {/* Actions */}
-                      <div className="flex flex-wrap gap-1 pt-2 border-t border-gray-100">
-                        <button
-                          onClick={() => setEditingComercial(comercial)}
-                          className="relative p-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors group/btn"
-                          title="Editar"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
-                            <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h357l-80 80H200v560h560v-278l80-80v358q0 33-23.5 56.5T760-120H200Zm280-360ZM360-360v-170l367-367q12-12 27-18t30-6q16 0 30.5 6t26.5 18l56 57q11 12 17 26.5t6 29.5q0 15-5.5 29.5T897-728L530-360H360Zm481-424-56-56 56 56ZM440-440h56l232-232-28-28-29-28-231 231v57Zm260-260-29-28 29 28 28 28-28-28Z"/>
-                          </svg>
-                        </button>
-                        {comercial.estado_transcodificacion === 'COMPLETADO' && (
-                          <button 
-                            onClick={() => handlePlay(comercial)}
-                            className="relative p-1.5 bg-green-500 text-white rounded hover:bg-green-600 transition-colors group/btn"
-                            title="Reproducir"
+                      <div className="flex justify-between items-center pt-2 border-t border-gray-100">
+                        <div className="flex space-x-2">
+                          <button
+                            onClick={() => setEditingComercial(comercial)}
+                            className="text-blue-600 hover:text-blue-800 text-sm"
+                            title="Editar"
                           >
-                            <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
-                              <path d="M320-200v-560l440 280-440 280Zm80-280Zm0 134 210-134-210-134v268Z"/>
-                            </svg>
+                            ✏️
                           </button>
-                        )}
-                        <button 
-                          onClick={() => setSharingComercial(comercial)}
-                          className="relative p-1.5 bg-indigo-500 text-white rounded hover:bg-indigo-600 transition-colors group/btn"
-                          title="Compartir"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
-                            <path d="M680-80q-50 0-85-35t-35-85q0-6 3-28L282-392q-16 15-37 23.5t-45 8.5q-50 0-85-35t-35-85q0-50 35-85t85-35q24 0 45 8.5t37 23.5l281-164q-2-7-2.5-13.5T560-760q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-24 0-45-8.5T598-672L317-508q2 7 2.5 13.5t.5 14.5q0 8-.5 14.5T317-452l281 164q16-15 37-23.5t45-8.5q50 0 85 35t35 85q0 50-35 85t-85 35Zm0-80q17 0 28.5-11.5T720-200q0-17-11.5-28.5T680-240q-17 0-28.5 11.5T640-200q0 17 11.5 28.5T680-160ZM200-440q17 0 28.5-11.5T240-480q0-17-11.5-28.5T200-520q-17 0-28.5 11.5T160-480q0 17 11.5 28.5T200-440Zm480-280q17 0 28.5-11.5T720-760q0-17-11.5-28.5T680-800q-17 0-28.5 11.5T640-760q0 17 11.5 28.5T680-720Zm0 520ZM200-480Zm480-280Z"/>
-                          </svg>
-                        </button>
-                        {comercial.estado_transcodificacion === 'COMPLETADO' && (
+                          {comercial.estado_transcodificacion === 'COMPLETADO' && (
+                            <button 
+                              onClick={() => handlePlay(comercial)}
+                              className="text-green-600 hover:text-green-800 text-sm" 
+                              title="Reproducir"
+                            >
+                              ▶️
+                            </button>
+                          )}
                           <button 
-                            onClick={() => setEncodingComercial(comercial)}
-                            className="relative p-1.5 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition-colors group/btn"
-                            title="Codificar"
+                            onClick={() => setSharingComercial(comercial)}
+                            className="text-blue-500 hover:text-blue-700 text-sm" 
+                            title="Compartir"
                           >
-                            <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
-                              <path d="M640-40 480-200l56-58 64 64v-86H360q-33 0-56.5-23.5T280-360v-240H80v-80h200v-86l-64 64-56-58 160-160 160 160-56 58-64-64v406h520v80H680v86l64-64 56 58L640-40Zm-40-400v-160H440v-80h160q33 0 56.5 23.5T680-600v160h-80Z"/>
-                            </svg>
+                            🔗
                           </button>
-                        )}
-                        {comercial.estado_transcodificacion === 'COMPLETADO' && comercial.ruta_h264 && (
+                          {comercial.estado_transcodificacion === 'COMPLETADO' && (
+                            <button 
+                              onClick={() => setEncodingComercial(comercial)}
+                              className="text-yellow-600 hover:text-yellow-800 text-sm" 
+                              title="Codificar"
+                            >
+                              🎬
+                            </button>
+                          )}
+                          {comercial.estado_transcodificacion === 'COMPLETADO' && comercial.ruta_h264 && (
+                            <button 
+                              onClick={() => handleDownload(comercial, 'h264')}
+                              className="text-orange-600 hover:text-orange-800 text-sm" 
+                              title="Descargar H.264"
+                            >
+                              📦
+                            </button>
+                          )}
                           <button 
-                            onClick={() => handleDownload(comercial, 'h264')}
-                            className="relative p-1.5 bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors group/btn"
-                            title="H.264"
+                            onClick={() => handleDownload(comercial, 'original')}
+                            className="text-purple-600 hover:text-purple-800 text-sm" 
+                            title="Descargar Original"
                           >
-                            <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 0 24 24" width="16px" fill="currentColor">
-                              <path d="M0 0h24v24H0V0z" fill="none"/>
-                              <path d="M9 10v8l7-4zm12-4h-7.58l3.29-3.29L16 2l-4 4h-.03l-4-4-.69.71L10.56 6H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 14H3V8h18v12z"/>
-                            </svg>
+                            ⬇️
                           </button>
-                        )}
-                        <button 
-                          onClick={() => handleDownload(comercial, 'original')}
-                          className="relative p-1.5 bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors group/btn"
-                          title="Descargar"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
-                            <path d="M480-160q-100 0-170-70t-70-170h80q0 66 47 113t113 47q66 0 113-47t47-113h80q0 100-70 170t-170 70Zm0-201L320-521l56-57 64 64v-246h80v246l64-64 56 57-160 160Z"/>
-                          </svg>
-                        </button>
+                        </div>
                         <button
                           onClick={() => handleDelete(comercial.id)}
-                          className="relative p-1.5 bg-red-500 text-white rounded hover:bg-red-600 transition-colors group/btn"
+                          className="text-red-600 hover:text-red-800 text-sm"
                           title="Eliminar"
                         >
-                          <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
-                            <path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/>
-                          </svg>
+                          🗑️
                         </button>
                       </div>
                       

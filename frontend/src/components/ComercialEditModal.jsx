@@ -41,22 +41,19 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    // Convert value to uppercase for text inputs (not for date fields)
-    const upperValue = name !== 'pizarra.fecha' ? value.toUpperCase() : value;
-    
     if (name.startsWith('pizarra.')) {
       const field = name.split('.')[1];
       setFormData(prev => ({
         ...prev,
         pizarra: {
           ...prev.pizarra,
-          [field]: upperValue
+          [field]: value
         }
       }));
     } else {
       setFormData(prev => ({
         ...prev,
-        [name]: upperValue
+        [name]: value
       }));
     }
   };

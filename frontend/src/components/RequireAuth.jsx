@@ -27,8 +27,8 @@ function RequireAuth({ children, requireAdmin = false }) {
 
   if (DEBUG_LOGS) console.log('✅ User authenticated - rendering children');
 
-  // If requireAdmin is true, check for puede_acceder_administracion permission
-  if (requireAdmin && !user.perfil_info?.permisos?.puede_acceder_administracion) {
+  // If requireAdmin is true, check for puede_ver_admin permission
+  if (requireAdmin && !user.perfil_info?.permisos?.puede_ver_admin) {
     if (DEBUG_LOGS) console.log('⛔ No admin permission - redirecting to home');
     return <Navigate to="/" replace />;
   }

@@ -135,7 +135,7 @@ class PerfilViewSet(viewsets.ModelViewSet):
 class BroadcastViewSet(viewsets.ModelViewSet):
     serializer_class = BroadcastSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = ['repositorio', 'estado_transcodificacion', 'modulo', 'directorio', 'nombre_original']
+    filterset_fields = ['repositorio', 'estado_transcodificacion', 'modulo', 'directorio']
     search_fields = ['pizarra__producto', 'pizarra__version']
 
     def get_queryset(self):
@@ -166,20 +166,6 @@ class BroadcastViewSet(viewsets.ModelViewSet):
         Sobrescribimos el método create para manejar el upload de archivos
         y disparar la tarea de transcodificación.
         """
-        # Validar que no exista un broadcast con el mismo nombre_original
-        nombre_original = request.data.get('nombre_original')
-        if nombre_original:
-            # Buscar si ya existe un broadcast con este nombre
-            existing = Broadcast.objects.filter(nombre_original=nombre_original).first()
-            if existing:
-                return Response(
-                    {
-                        'error': 'duplicate_file',
-                        'message': f'El archivo "{nombre_original}" ya fue cargado anteriormente.'
-                    },
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-        
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         broadcast = serializer.save()
