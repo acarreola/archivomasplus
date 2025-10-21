@@ -1,6 +1,6 @@
 // frontend/src/components/UserRepositoriosModal.jsx
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import axios from '../utils/axios';
 
 export default function UserRepositoriosModal({ user, onClose, onSave }) {
   const [repositorios, setRepositorios] = useState([]);
@@ -14,11 +14,11 @@ export default function UserRepositoriosModal({ user, onClose, onSave }) {
   const fetchData = async () => {
     try {
       // Obtener todos los repositorios
-      const reposResponse = await axios.get('http://localhost:8000/api/repositorios/');
+      const reposResponse = await axios.get('/api/repositorios/');
       setRepositorios(reposResponse.data);
 
       // Obtener permisos del user
-      const permisosResponse = await axios.get(`http://localhost:8000/api/repositorio-permisos/?user=${user.id}`);
+      const permisosResponse = await axios.get(`/api/repositorio-permisos/?usuario=${user.id}`);
       setPermisos(permisosResponse.data);
       
       setLoading(false);
@@ -28,9 +28,7 @@ export default function UserRepositoriosModal({ user, onClose, onSave }) {
     }
   };
 
-  const getPermisosForRepo = (repoId) => {
-    return permisos.find(p => p.repositorio === repoId);
-  };
+  const getPermisosForRepo = (repoId) => permisos.find(p => p.repositorio === repoId);
 
   const toggleRepositorio = async (repo) => {
     const permisoExistente = getPermisosForRepo(repo.id);
@@ -38,15 +36,16 @@ export default function UserRepositoriosModal({ user, onClose, onSave }) {
     try {
       if (permisoExistente) {
         // Delete permiso
-        await axios.delete(`http://localhost:8000/api/repositorio-permisos/${permisoExistente.id}/`);
+        await axios.delete(`/api/repositorio-permisos/${permisoExistente.id}/`);
       } else {
         // Create permiso nuevo (por defecto: solo ver)
-        await axios.post('http://localhost:8000/api/repositorio-permisos/', {
-          user: user.id,
+        await axios.post('/api/repositorio-permisos/', {
+          usuario: user.id,
           repositorio: repo.id,
           puede_ver: true,
           puede_editar: false,
-          puede_borrar: false
+          puede_borrar: false,
+          modulos_permitidos: repo.modulos?.length ? repo.modulos : []
         });
       }
       fetchData(); // Recargar permisos
@@ -57,12 +56,26 @@ export default function UserRepositoriosModal({ user, onClose, onSave }) {
 
   const togglePermiso = async (permisoId, campo, valorActual) => {
     try {
-      await axios.patch(`http://localhost:8000/api/repositorio-permisos/${permisoId}/`, {
+      await axios.patch(`/api/repositorio-permisos/${permisoId}/`, {
         [campo]: !valorActual
       });
       fetchData(); // Recargar permisos
     } catch (err) {
       console.error('Error toggling permiso:', err);
+    }
+  };
+
+  const toggleModulo = async (permiso, moduloId) => {
+    const actuales = permiso.modulos_permitidos || [];
+    const existe = actuales.includes(moduloId);
+    const nuevos = existe ? actuales.filter(id => id !== moduloId) : [...actuales, moduloId];
+    try {
+      await axios.patch(`/api/repositorio-permisos/${permiso.id}/`, {
+        modulos_permitidos: nuevos
+      });
+      fetchData();
+    } catch (err) {
+      console.error('Error toggling módulo:', err);
     }
   };
 
@@ -81,7 +94,7 @@ export default function UserRepositoriosModal({ user, onClose, onSave }) {
       <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
         <div className="bg-purple-600 text-white px-6 py-4 flex justify-between items-center">
           <h3 className="text-xl font-bold">
-            🔐 Repositorios y Permisos - {user.name_completo || user.username}
+            🔐 Repositorios y Permisos - {user.nombre_completo || user.email}
           </h3>
           <button onClick={onClose} className="text-white hover:text-gray-200 text-2xl">
             ✕
@@ -115,15 +128,7 @@ export default function UserRepositoriosModal({ user, onClose, onSave }) {
                         className="w-5 h-5 text-green-600 border-gray-300 rounded focus:ring-green-500"
                       />
                       <div>
-                        <h4 className="font-bold text-gray-900">{repo.name}</h4>
-                        <div className="flex items-center space-x-2 text-sm text-gray-600">
-                          <code className="bg-gray-200 px-2 py-0.5 rounded font-mono text-xs">
-                            {repo.folio}
-                          </code>
-                          {repo.clave && (
-                            <span className="text-blue-600 font-bold">• {repo.clave}</span>
-                          )}
-                        </div>
+                        <h4 className="font-bold text-gray-900">{repo.nombre || repo.name}</h4>
                       </div>
                     </div>
                     
@@ -134,36 +139,64 @@ export default function UserRepositoriosModal({ user, onClose, onSave }) {
 
                   {/* Permisos (solo si tiene acceso) */}
                   {tieneAcceso && permiso && (
-                    <div className="ml-8 flex items-center space-x-6 pt-2 border-t border-green-200">
-                      <label className="flex items-center space-x-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={permiso.puede_ver}
-                          onChange={() => togglePermiso(permiso.id, 'puede_ver', permiso.puede_ver)}
-                          className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                        />
-                        <span className="text-sm font-medium text-gray-700">👁️ Ver</span>
-                      </label>
+                    <div className="ml-8 space-y-3 pt-2 border-t border-green-200">
+                      <div className="flex items-center space-x-6">
+                        <label className="flex items-center space-x-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={permiso.puede_ver}
+                            onChange={() => togglePermiso(permiso.id, 'puede_ver', permiso.puede_ver)}
+                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                          />
+                          <span className="text-sm font-medium text-gray-700">👁️ Ver</span>
+                        </label>
 
-                      <label className="flex items-center space-x-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={permiso.puede_editar}
-                          onChange={() => togglePermiso(permiso.id, 'puede_editar', permiso.puede_editar)}
-                          className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
-                        />
-                        <span className="text-sm font-medium text-gray-700">✏️ Edit</span>
-                      </label>
+                        <label className="flex items-center space-x-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={permiso.puede_editar}
+                            onChange={() => togglePermiso(permiso.id, 'puede_editar', permiso.puede_editar)}
+                            className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
+                          />
+                          <span className="text-sm font-medium text-gray-700">✏️ Edit</span>
+                        </label>
 
-                      <label className="flex items-center space-x-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={permiso.puede_borrar}
-                          onChange={() => togglePermiso(permiso.id, 'puede_borrar', permiso.puede_borrar)}
-                          className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
-                        />
-                        <span className="text-sm font-medium text-gray-700">🗑️ Borrar</span>
-                      </label>
+                        <label className="flex items-center space-x-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={permiso.puede_borrar}
+                            onChange={() => togglePermiso(permiso.id, 'puede_borrar', permiso.puede_borrar)}
+                            className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
+                          />
+                          <span className="text-sm font-medium text-gray-700">🗑️ Borrar</span>
+                        </label>
+                      </div>
+
+                      {/* Módulos permitidos */}
+                      <div className="flex flex-wrap items-center gap-4">
+                        {(repo.modulos_detalle || []).map(m => {
+                          const activos = permiso.modulos_permitidos || [];
+                          const checked = activos.includes(m.id);
+                          const labelMap = {
+                            storage: 'Storage',
+                            reel: 'H264',
+                            broadcast: 'Broadcast',
+                            audio: 'Audio',
+                            images: 'Gráficos'
+                          };
+                          return (
+                            <label key={m.id} className={`inline-flex items-center px-2 py-1 rounded border ${checked ? 'bg-blue-50 border-blue-300' : 'bg-gray-50 border-gray-300'} cursor-pointer`}>
+                              <input
+                                type="checkbox"
+                                className="mr-2"
+                                checked={checked}
+                                onChange={() => toggleModulo(permiso, m.id)}
+                              />
+                              <span className="text-sm text-gray-700">{labelMap[m.tipo] || m.nombre}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                 </div>

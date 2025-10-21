@@ -7,6 +7,7 @@ import ShareModal from './ShareModal';
 import CreateDirectoryModal from './CreateDirectoryModal';
 import ProcessingNotification from './ProcessingNotification';
 import EncodingModal from './EncodingModal_v2';
+import VersionHistoryModal from './VersionHistoryModal';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 
@@ -33,6 +34,7 @@ function ComercialesManager() {
   const [sharingComercial, setSharingComercial] = useState(null);
   const [encodingComercial, setEncodingComercial] = useState(null);
   const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
+  const [showVersionHistory, setShowVersionHistory] = useState(false);
   
   // Advanced search filters
   const [filters, setFilters] = useState({
@@ -214,16 +216,36 @@ function ComercialesManager() {
   };
 
   const handleDelete = (comercialId) => {
+    if (!comercialId) {
+      console.error('❌ No broadcast ID provided');
+      alert('Error: No broadcast ID provided');
+      return;
+    }
+
+    console.log('🗑️ Attempting to delete broadcast:', comercialId);
+    
     if (window.confirm('Are you sure you want to delete this broadcast?')) {
-      axios.delete(`http://localhost:8000/api/broadcasts/${comercialId}/`)
+      const deleteUrl = `http://localhost:8000/api/broadcasts/${comercialId}/`;
+      console.log('DELETE URL:', deleteUrl);
+      
+      axios.delete(deleteUrl)
         .then(() => {
+          console.log('✅ Broadcast deleted successfully');
           fetchComerciales();
           fetchDirectorios();
         })
         .catch(err => {
-          console.error('Error al eliminar:', err);
+          console.error('❌ Error al eliminar:', err);
+          console.error('Error response:', err.response);
+          console.error('Error status:', err.response?.status);
+          console.error('Error data:', err.response?.data);
+          
           if (err.response?.status === 403) {
             alert('You do not have permission to delete this broadcast');
+          } else if (err.response?.status === 404) {
+            alert(`Broadcast not found (404). ID: ${comercialId}\n\nThe broadcast may have been already deleted or does not exist.`);
+            // Refrescar la lista para sincronizar
+            fetchComerciales();
           } else {
             alert(`Error deleting broadcast: ${err.response?.data?.detail || err.message}`);
           }
@@ -290,6 +312,19 @@ function ComercialesManager() {
       'ERROR': 'bg-red-100 text-red-800'
     };
     return badges[estado] || 'bg-gray-100 text-gray-800';
+  };
+
+  // Map CSV vtype (1/2/3) or fallback fields to human-readable Type label
+  const getTypeLabel = (pizarra) => {
+    if (!pizarra) return '-';
+    const v = (pizarra.vtype ?? '').toString().trim();
+    if (v === '1') return 'Master';
+    if (v === '2') return 'Genérico';
+    if (v === '3') return 'Intergenérico';
+    // Fallback: some records might use "formato" or already have a label
+    if (pizarra.formato && pizarra.formato.trim()) return pizarra.formato;
+    if (pizarra.type && pizarra.type.trim()) return pizarra.type;
+    return '-';
   };
 
   // Format file sizes (bytes -> human readable)
@@ -572,6 +607,7 @@ function ComercialesManager() {
         {/* Spacer */}
         <div className="flex-1"></div>
 
+        {/* Action Buttons */}
         <div className="p-2 border-t border-gray-700 space-y-2">
           <button
             onClick={() => setShowDirectoryForm(true)}
@@ -594,6 +630,16 @@ function ComercialesManager() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
             </svg>
             {t('buttons.upload')}
+          </button>
+
+          <button
+            onClick={() => setShowVersionHistory(true)}
+            className="w-full bg-gray-600 hover:bg-gray-500 text-white px-3 py-4 rounded text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Help
           </button>
         </div>
       </div>
@@ -781,20 +827,24 @@ function ComercialesManager() {
               )}
             </div>
           </div>
-          <div className="flex items-center space-x-4">
-            <div className="text-right">
-              <div className="flex items-center space-x-4">
-                <div>
-                  <span className="text-2xl font-bold">{stanbyFiles}</span>
-                  <p className="text-xs">{t('stats.standby')}</p>
-                </div>
-                <div>
-                  <span className="text-2xl font-bold">{totalFiles}</span>
-                  <p className="text-xs">{t('stats.total')}</p>
-                </div>
-              </div>
+          <div className="flex items-center space-x-6 mr-6">
+            {/* Statistics */}
+            <div className="text-center">
+              <div className="text-2xl font-bold text-white">{directorios.length}</div>
+              <p className="text-xs text-white font-medium">Directories</p>
             </div>
-            {/* Logout button removed from header */}
+            <div className="text-center">
+              <div className="text-2xl font-bold text-white">{totalFiles}</div>
+              <p className="text-xs text-white font-medium">Commercials</p>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-white">{stanbyFiles}</div>
+              <p className="text-xs text-white font-medium">Pending</p>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-white">{totalFiles - stanbyFiles}</div>
+              <p className="text-xs text-white font-medium">Processed</p>
+            </div>
           </div>
         </div>
 
@@ -996,30 +1046,38 @@ function ComercialesManager() {
                         <td className="px-4 py-3">
                           <div className="flex items-center space-x-2">
                             {/* Edit button */}
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleEditDirectory(item.data);
-                              }}
-                              className="p-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
-                              title="Edit"
-                            >
-                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                                <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h357l-80 80H200v560h560v-278l80-80v358q0 33-23.5 56.5T760-120H200Zm280-360ZM360-360v-170l367-367q12-12 27-18t30-6q16 0 30.5 6t26.5 18l56 57q11 12 17 26.5t6 29.5q0 15-5.5 29.5T897-728L530-360H360Zm481-424-56-56 56 56ZM440-440h56l232-232-28-28-29-28-231 231v57Zm260-260-29-28 29 28 28 28-28-28Z"/>
-                              </svg>
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteDirectory(item.data.id);
-                              }}
-                              className="p-1.5 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
-                              title="Delete"
-                            >
-                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                                <path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/>
-                              </svg>
-                            </button>
+                            <div className="relative group">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleEditDirectory(item.data);
+                                }}
+                                className="p-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                  <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h357l-80 80H200v560h560v-278l80-80v358q0 33-23.5 56.5T760-120H200Zm280-360ZM360-360v-170l367-367q12-12 27-18t30-6q16 0 30.5 6t26.5 18l56 57q11 12 17 26.5t6 29.5q0 15-5.5 29.5T897-728L530-360H360Zm481-424-56-56 56 56ZM440-440h56l232-232-28-28-29-28-231 231v57Zm260-260-29-28 29 28 28 28-28-28Z"/>
+                                </svg>
+                              </button>
+                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                Edit Directory
+                              </div>
+                            </div>
+                            <div className="relative group">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteDirectory(item.data.id);
+                                }}
+                                className="p-1.5 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                  <path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/>
+                                </svg>
+                              </button>
+                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                Delete Directory
+                              </div>
+                            </div>
                           </div>
                         </td>
                       </tr>
@@ -1110,24 +1168,32 @@ function ComercialesManager() {
                         {/* Actions */}
                         <td className="px-4 py-3">
                           <div className="flex justify-end space-x-1">
-                            <button
-                              onClick={() => setEditingComercial(item.data)}
-                              className="p-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
-                              title="Edit"
-                            >
-                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                                <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h357l-80 80H200v560h560v-278l80-80v358q0 33-23.5 56.5T760-120H200Zm280-360ZM360-360v-170l367-367q12-12 27-18t30-6q16 0 30.5 6t26.5 18l56 57q11 12 17 26.5t6 29.5q0 15-5.5 29.5T897-728L530-360H360Zm481-424-56-56 56 56ZM440-440h56l232-232-28-28-29-28-231 231v57Zm260-260-29-28 29 28 28 28-28-28Z"/>
-                              </svg>
-                            </button>
-                            <button
-                              onClick={() => handleDelete(item.data.id)}
-                              className="p-1.5 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
-                              title="Delete"
-                            >
-                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                                <path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/>
-                              </svg>
-                            </button>
+                            <div className="relative group">
+                              <button
+                                onClick={() => setEditingComercial(item.data)}
+                                className="p-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                  <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h357l-80 80H200v560h560v-278l80-80v358q0 33-23.5 56.5T760-120H200Zm280-360ZM360-360v-170l367-367q12-12 27-18t30-6q16 0 30.5 6t26.5 18l56 57q11 12 17 26.5t6 29.5q0 15-5.5 29.5T897-728L530-360H360Zm481-424-56-56 56 56ZM440-440h56l232-232-28-28-29-28-231 231v57Zm260-260-29-28 29 28 28 28-28-28Z"/>
+                                </svg>
+                              </button>
+                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                Edit
+                              </div>
+                            </div>
+                            <div className="relative group">
+                              <button
+                                onClick={() => handleDelete(item.data.id)}
+                                className="p-1.5 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                  <path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/>
+                                </svg>
+                              </button>
+                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                Delete
+                              </div>
+                            </div>
                           </div>
                         </td>
                       </tr>
@@ -1183,31 +1249,39 @@ function ComercialesManager() {
                         <td className="px-4 py-3">
                           <div className="flex items-center space-x-2">
                             {/* Botón Editar */}
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleEditDirectory(item.data);
-                              }}
-                              className="p-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
-                              title="Edit"
-                            >
-                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                                <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h357l-80 80H200v560h560v-278l80-80v358q0 33-23.5 56.5T760-120H200Zm280-360ZM360-360v-170l367-367q12-12 27-18t30-6q16 0 30.5 6t26.5 18l56 57q11 12 17 26.5t6 29.5q0 15-5.5 29.5T897-728L530-360H360Zm481-424-56-56 56 56ZM440-440h56l232-232-28-28-29-28-231 231v57Zm260-260-29-28 29 28 28 28-28-28Z"/>
-                              </svg>
-                            </button>
+                            <div className="relative group">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleEditDirectory(item.data);
+                                }}
+                                className="p-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                  <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h357l-80 80H200v560h560v-278l80-80v358q0 33-23.5 56.5T760-120H200Zm280-360ZM360-360v-170l367-367q12-12 27-18t30-6q16 0 30.5 6t26.5 18l56 57q11 12 17 26.5t6 29.5q0 15-5.5 29.5T897-728L530-360H360Zm481-424-56-56 56 56ZM440-440h56l232-232-28-28-29-28-231 231v57Zm260-260-29-28 29 28 28 28-28-28Z"/>
+                                </svg>
+                              </button>
+                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                Edit Directory
+                              </div>
+                            </div>
                             {/* Botón Eliminar */}
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteDirectory(item.data.id);
-                              }}
-                              className="p-1.5 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
-                              title="Delete"
-                            >
-                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                                <path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/>
-                              </svg>
-                            </button>
+                            <div className="relative group">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteDirectory(item.data.id);
+                                }}
+                                className="p-1.5 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                  <path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/>
+                                </svg>
+                              </button>
+                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                Delete Directory
+                              </div>
+                            </div>
                           </div>
                         </td>
                       </tr>
@@ -1257,9 +1331,10 @@ function ComercialesManager() {
                         <td className="px-4 py-3 text-sm text-gray-700">
                           {item.data.pizarra?.duracion || '-'}
                         </td>
+                        {/* Type (from CSV vtype mapping). Status is not shown in Full view */}
                         <td className="px-4 py-3 text-sm">
-                          <span className={`px-2 py-1 text-xs rounded-full ${getEstadoBadge(item.data.estado_transcodificacion)}`}>
-                            {item.data.estado_transcodificacion}
+                          <span className="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">
+                            {getTypeLabel(item.data.pizarra)}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-600">
@@ -1267,75 +1342,103 @@ function ComercialesManager() {
                         </td>
                         <td className="px-4 py-3 text-sm">
                           <div className="flex justify-end space-x-1">
-                            <button
-                              onClick={() => setEditingComercial(item.data)}
-                              className="p-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
-                              title="Edit"
-                            >
-                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                                <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h357l-80 80H200v560h560v-278l80-80v358q0 33-23.5 56.5T760-120H200Zm280-360ZM360-360v-170l367-367q12-12 27-18t30-6q16 0 30.5 6t26.5 18l56 57q11 12 17 26.5t6 29.5q0 15-5.5 29.5T897-728L530-360H360Zm481-424-56-56 56 56ZM440-440h56l232-232-28-28-29-28-231 231v57Zm260-260-29-28 29 28 28 28-28-28Z"/>
-                              </svg>
-                            </button>
-                            {item.data.estado_transcodificacion === 'COMPLETADO' && (
-                              <button 
-                                onClick={() => handlePlay(item.data)}
-                                className="p-1.5 bg-green-500 text-white rounded hover:bg-green-600 transition-colors"
-                                title="Reproducir"
+                            <div className="relative group">
+                              <button
+                                onClick={() => setEditingComercial(item.data)}
+                                className="p-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
                               >
                                 <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                                  <path d="M320-200v-560l440 280-440 280Z"/>
+                                  <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h357l-80 80H200v560h560v-278l80-80v358q0 33-23.5 56.5T760-120H200Zm280-360ZM360-360v-170l367-367q12-12 27-18t30-6q16 0 30.5 6t26.5 18l56 57q11 12 17 26.5t6 29.5q0 15-5.5 29.5T897-728L530-360H360Zm481-424-56-56 56 56ZM440-440h56l232-232-28-28-29-28-231 231v57Zm260-260-29-28 29 28 28 28-28-28Z"/>
                                 </svg>
                               </button>
+                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                Edit
+                              </div>
+                            </div>
+                            {item.data.estado_transcodificacion === 'COMPLETADO' && (
+                              <div className="relative group">
+                                <button 
+                                  onClick={() => handlePlay(item.data)}
+                                  className="p-1.5 bg-green-500 text-white rounded hover:bg-green-600 transition-colors"
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                    <path d="M320-200v-560l440 280-440 280Z"/>
+                                  </svg>
+                                </button>
+                                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                  Play
+                                </div>
+                              </div>
                             )}
-                            <button 
-                              onClick={() => setSharingComercial(item.data)}
-                              className="p-1.5 bg-indigo-500 text-white rounded hover:bg-indigo-600 transition-colors"
-                              title="Compartir"
-                            >
-                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                                <path d="M720-80q-50 0-85-35t-35-85q0-7 1-14.5t3-13.5L322-392q-17 15-38 23.5t-44 8.5q-50 0-85-35t-35-85q0-50 35-85t85-35q23 0 44 8.5t38 23.5l282-164q-2-6-3-13.5t-1-14.5q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-23 0-44-8.5T638-672L356-508q2 6 3 13.5t1 14.5q0 7-1 14.5t-3 13.5l282 164q17-15 38-23.5t44-8.5q50 0 85 35t35 85q0 50-35 85t-85 35Z"/>
-                              </svg>
-                            </button>
-                            {item.data.estado_transcodificacion === 'COMPLETADO' && (
+                            <div className="relative group">
                               <button 
-                                onClick={() => setEncodingComercial(item.data)}
-                                className="p-1.5 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition-colors"
-                                title="Codificar"
+                                onClick={() => setSharingComercial(item.data)}
+                                className="p-1.5 bg-indigo-500 text-white rounded hover:bg-indigo-600 transition-colors"
                               >
                                 <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                                  <path d="M512-120v-71q90-13 149-85.5T720-440q0-100-70-170t-170-70q-100 0-170 70t-70 170q0 91 59 163.5T448-191v71q-123-14-203.5-105.5T164-440q0-134 93-227t227-93q134 0 227 93t93 227q0 123-80.5 214.5T512-120Zm-32-168v-304q0-8.5 5.75-14.25T500-612q8.5 0 14.25 5.75T520-592v304q0 8.5-5.75 14.25T500-268q-8.5 0-14.25-5.75T480-288Z"/>
+                                  <path d="M720-80q-50 0-85-35t-35-85q0-7 1-14.5t3-13.5L322-392q-17 15-38 23.5t-44 8.5q-50 0-85-35t-35-85q0-50 35-85t85-35q23 0 44 8.5t38 23.5l282-164q-2-6-3-13.5t-1-14.5q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-23 0-44-8.5T638-672L356-508q2 6 3 13.5t1 14.5q0 7-1 14.5t-3 13.5l282 164q17-15 38-23.5t44-8.5q50 0 85 35t35 85q0 50-35 85t-85 35Z"/>
                                 </svg>
                               </button>
+                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                Share
+                              </div>
+                            </div>
+                            {item.data.estado_transcodificacion === 'COMPLETADO' && (
+                              <div className="relative group">
+                                <button 
+                                  onClick={() => setEncodingComercial(item.data)}
+                                  className="p-1.5 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition-colors"
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                    <path d="M512-120v-71q90-13 149-85.5T720-440q0-100-70-170t-170-70q-100 0-170 70t-70 170q0 91 59 163.5T448-191v71q-123-14-203.5-105.5T164-440q0-134 93-227t227-93q134 0 227 93t93 227q0 123-80.5 214.5T512-120Zm-32-168v-304q0-8.5 5.75-14.25T500-612q8.5 0 14.25 5.75T520-592v304q0 8.5-5.75 14.25T500-268q-8.5 0-14.25-5.75T480-288Z"/>
+                                  </svg>
+                                </button>
+                                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                  Encode
+                                </div>
+                              </div>
                             )}
                             {item.data.estado_transcodificacion === 'COMPLETADO' && item.data.ruta_h264 && (
+                              <div className="relative group">
+                                <button 
+                                  onClick={() => handleDownload(item.data, 'h264')}
+                                  className="p-1.5 bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors"
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                    <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
+                                  </svg>
+                                </button>
+                                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                  Download H.264
+                                </div>
+                              </div>
+                            )}
+                            <div className="relative group">
                               <button 
-                                onClick={() => handleDownload(item.data, 'h264')}
-                                className="p-1.5 bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors"
-                                title="Descargar H.264"
+                                onClick={() => handleDownload(item.data, 'original')}
+                                className="p-1.5 bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors"
                               >
                                 <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
                                   <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
                                 </svg>
                               </button>
-                            )}
-                            <button 
-                              onClick={() => handleDownload(item.data, 'original')}
-                              className="p-1.5 bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors"
-                              title="Descargar Original"
-                            >
-                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                                <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
-                              </svg>
-                            </button>
-                            <button
-                              onClick={() => handleDelete(item.data.id)}
-                              className="p-1.5 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
-                              title="Delete"
-                            >
-                              <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                                <path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/>
-                              </svg>
-                            </button>
+                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                Download Original
+                              </div>
+                            </div>
+                            <div className="relative group">
+                              <button
+                                onClick={() => handleDelete(item.data.id)}
+                                className="p-1.5 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                  <path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/>
+                                </svg>
+                              </button>
+                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                Delete
+                              </div>
+                            </div>
                           </div>
                         </td>
                       </tr>
@@ -1417,76 +1520,104 @@ function ComercialesManager() {
                       {/* Actions */}
                       <div className="flex justify-between items-center pt-2 border-t border-gray-100">
                         <div className="flex space-x-1">
-                          <button
-                            onClick={() => setEditingComercial(comercial)}
-                            className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                            title="Edit"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
-                              <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h357l-80 80H200v560h560v-278l80-80v358q0 33-23.5 56.5T760-120H200Zm280-360ZM360-360v-170l367-367q12-12 27-18t30-6q16 0 30.5 6t26.5 18l56 57q11 12 17 26.5t6 29.5q0 15-5.5 29.5T897-728L530-360H360Zm481-424-56-56 56 56ZM440-440h56l232-232-28-28-29-28-231 231v57Zm260-260-29-28 29 28 28 28-28-28Z"/>
-                            </svg>
-                          </button>
-                          {comercial.estado_transcodificacion === 'COMPLETADO' && (
-                            <button 
-                              onClick={() => handlePlay(comercial)}
-                              className="p-1 text-green-600 hover:bg-green-50 rounded transition-colors" 
-                              title="Reproducir"
+                          <div className="relative group">
+                            <button
+                              onClick={() => setEditingComercial(comercial)}
+                              className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors"
                             >
                               <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
-                                <path d="M320-200v-560l440 280-440 280Z"/>
+                                <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h357l-80 80H200v560h560v-278l80-80v358q0 33-23.5 56.5T760-120H200Zm280-360ZM360-360v-170l367-367q12-12 27-18t30-6q16 0 30.5 6t26.5 18l56 57q11 12 17 26.5t6 29.5q0 15-5.5 29.5T897-728L530-360H360Zm481-424-56-56 56 56ZM440-440h56l232-232-28-28-29-28-231 231v57Zm260-260-29-28 29 28 28 28-28-28Z"/>
                               </svg>
                             </button>
+                            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                              Edit
+                            </div>
+                          </div>
+                          {comercial.estado_transcodificacion === 'COMPLETADO' && (
+                            <div className="relative group">
+                              <button 
+                                onClick={() => handlePlay(comercial)}
+                                className="p-1 text-green-600 hover:bg-green-50 rounded transition-colors" 
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
+                                  <path d="M320-200v-560l440 280-440 280Z"/>
+                                </svg>
+                              </button>
+                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                Play
+                              </div>
+                            </div>
                           )}
-                          <button 
-                            onClick={() => setSharingComercial(comercial)}
-                            className="p-1 text-indigo-600 hover:bg-indigo-50 rounded transition-colors" 
-                            title="Compartir"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
-                              <path d="M720-80q-50 0-85-35t-35-85q0-7 1-14.5t3-13.5L322-392q-17 15-38 23.5t-44 8.5q-50 0-85-35t-35-85q0-50 35-85t85-35q23 0 44 8.5t38 23.5l282-164q-2-6-3-13.5t-1-14.5q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-23 0-44-8.5T638-672L356-508q2 6 3 13.5t1 14.5q0 7-1 14.5t-3 13.5l282 164q17-15 38-23.5t44-8.5q50 0 85 35t35 85q0 50-35 85t-85 35Z"/>
-                            </svg>
-                          </button>
-                          {comercial.estado_transcodificacion === 'COMPLETADO' && (
+                          <div className="relative group">
                             <button 
-                              onClick={() => setEncodingComercial(comercial)}
-                              className="p-1 text-yellow-600 hover:bg-yellow-50 rounded transition-colors" 
-                              title="Codificar"
+                              onClick={() => setSharingComercial(comercial)}
+                              className="p-1 text-indigo-600 hover:bg-indigo-50 rounded transition-colors" 
                             >
                               <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
-                                <path d="M512-120v-71q90-13 149-85.5T720-440q0-100-70-170t-170-70q-100 0-170 70t-70 170q0 91 59 163.5T448-191v71q-123-14-203.5-105.5T164-440q0-134 93-227t227-93q134 0 227 93t93 227q0 123-80.5 214.5T512-120Zm-32-168v-304q0-8.5 5.75-14.25T500-612q8.5 0 14.25 5.75T520-592v304q0 8.5-5.75 14.25T500-268q-8.5 0-14.25-5.75T480-288Z"/>
+                                <path d="M720-80q-50 0-85-35t-35-85q0-7 1-14.5t3-13.5L322-392q-17 15-38 23.5t-44 8.5q-50 0-85-35t-35-85q0-50 35-85t85-35q23 0 44 8.5t38 23.5l282-164q-2-6-3-13.5t-1-14.5q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-23 0-44-8.5T638-672L356-508q2 6 3 13.5t1 14.5q0 7-1 14.5t-3 13.5l282 164q17-15 38-23.5t44-8.5q50 0 85 35t35 85q0 50-35 85t-85 35Z"/>
                               </svg>
                             </button>
+                            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                              Share
+                            </div>
+                          </div>
+                          {comercial.estado_transcodificacion === 'COMPLETADO' && (
+                            <div className="relative group">
+                              <button 
+                                onClick={() => setEncodingComercial(comercial)}
+                                className="p-1 text-yellow-600 hover:bg-yellow-50 rounded transition-colors" 
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
+                                  <path d="M512-120v-71q90-13 149-85.5T720-440q0-100-70-170t-170-70q-100 0-170 70t-70 170q0 91 59 163.5T448-191v71q-123-14-203.5-105.5T164-440q0-134 93-227t227-93q134 0 227 93t93 227q0 123-80.5 214.5T512-120Zm-32-168v-304q0-8.5 5.75-14.25T500-612q8.5 0 14.25 5.75T520-592v304q0 8.5-5.75 14.25T500-268q-8.5 0-14.25-5.75T480-288Z"/>
+                                </svg>
+                              </button>
+                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                Encode
+                              </div>
+                            </div>
                           )}
                           {comercial.estado_transcodificacion === 'COMPLETADO' && comercial.ruta_h264 && (
+                            <div className="relative group">
+                              <button 
+                                onClick={() => handleDownload(comercial, 'h264')}
+                                className="p-1 text-orange-600 hover:bg-orange-50 rounded transition-colors" 
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
+                                  <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
+                                </svg>
+                              </button>
+                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                Download H.264
+                              </div>
+                            </div>
+                          )}
+                          <div className="relative group">
                             <button 
-                              onClick={() => handleDownload(comercial, 'h264')}
-                              className="p-1 text-orange-600 hover:bg-orange-50 rounded transition-colors" 
-                              title="Descargar H.264"
+                              onClick={() => handleDownload(comercial, 'original')}
+                              className="p-1 text-purple-600 hover:bg-purple-50 rounded transition-colors" 
                             >
                               <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
                                 <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
                               </svg>
                             </button>
-                          )}
-                          <button 
-                            onClick={() => handleDownload(comercial, 'original')}
-                            className="p-1 text-purple-600 hover:bg-purple-50 rounded transition-colors" 
-                            title="Descargar Original"
+                            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                              Download Original
+                            </div>
+                          </div>
+                        </div>
+                        <div className="relative group">
+                          <button
+                            onClick={() => handleDelete(comercial.id)}
+                            className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
                           >
                             <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
-                              <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
+                              <path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/>
                             </svg>
                           </button>
+                          <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                            Delete
+                          </div>
                         </div>
-                        <button
-                          onClick={() => handleDelete(comercial.id)}
-                          className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
-                          title="Delete"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
-                            <path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/>
-                          </svg>
-                        </button>
                       </div>
                       
                       {/* Date */}
@@ -1648,6 +1779,13 @@ function ComercialesManager() {
 
       {/* Processing Notification - Flotante */}
       <ProcessingNotification comerciales={comerciales} />
+
+      {/* Version History Modal */}
+      {showVersionHistory && (
+        <VersionHistoryModal
+          onClose={() => setShowVersionHistory(false)}
+        />
+      )}
     </div>
   );
 }

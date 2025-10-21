@@ -1,6 +1,8 @@
 # core/models.py
 import uuid
 import os
+import random
+import string
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.utils import timezone
@@ -76,8 +78,9 @@ class Perfil(models.Model):
 
 class Repositorio(models.Model):
     nombre = models.CharField(max_length=255, unique=True, help_text="Nombre del cliente o proyecto")
-    folio = models.CharField(max_length=10, unique=True, help_text="Código único del repositorio (ej: lwohBX)")
-    clave = models.CharField(max_length=3, blank=True, help_text="Clave manual de 3 caracteres")
+    folio = models.CharField(max_length=50, unique=True, help_text="Folio autogenerado del repositorio (~15-20 caracteres)")
+    position = models.PositiveIntegerField(default=0, help_text="Posición/orden del repositorio en el tablero")
+    clave = models.CharField(max_length=4, help_text="Clave/Key de exactamente 4 letras mayúsculas (A-Z)")
     activo = models.BooleanField(default=True, help_text="Repositorio activo o inactivo")
     modulos = models.ManyToManyField(Modulo, blank=True, related_name='repositorios', help_text="Módulos asignados a este repositorio")
     fecha_creacion = models.DateTimeField(auto_now_add=True)
@@ -85,14 +88,63 @@ class Repositorio(models.Model):
     def __str__(self):
         return f"{self.folio} - {self.nombre}"
 
+    def _generate_folio(self) -> str:
+        """Genera un folio único de aprox 15-20 caracteres"""
+        import time
+        timestamp = str(int(time.time() * 1000))[-10:]  # 10 dígitos del timestamp en milisegundos
+        random_part = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+        candidate = f"{timestamp}-{random_part}"  # Formato: 1234567890-ABCD1234 (19 chars)
+        
+        # Verificar que sea único
+        counter = 0
+        while Repositorio.objects.filter(folio=candidate).exists() and counter < 100:
+            random_part = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+            candidate = f"{timestamp}-{random_part}"
+            counter += 1
+        
+        return candidate
+
+    def save(self, *args, **kwargs):
+        # Auto-generar folio si no existe
+        if not self.folio:
+            self.folio = self._generate_folio()
+        
+        # Normalizar clave a exactamente 4 letras mayúsculas
+        if self.clave:
+            self.clave = str(self.clave).strip().upper()[:4]
+            # Rellenar con 'X' si es menor a 4
+            if len(self.clave) < 4:
+                self.clave = self.clave.ljust(4, 'X')
+        
+        super().save(*args, **kwargs)
+
 class CustomUser(AbstractUser):
+    # Email como identificador principal (requerido y único)
+    email = models.EmailField(unique=True, verbose_name="Email")
+    username = models.CharField(max_length=150, blank=True, null=True, verbose_name="Username (opcional)")
+    
+    # Campos de perfil
     perfil = models.ForeignKey(Perfil, on_delete=models.SET_NULL, null=True, blank=True, related_name='usuarios', verbose_name="Perfil/Rol")
-    nombre_completo = models.CharField(max_length=255, blank=True, verbose_name="Nombre Completo")
-    compania = models.CharField(max_length=255, blank=True, verbose_name="Compañía")
-    telefono = models.CharField(max_length=20, blank=True, verbose_name="Teléfono")
+    nombre_completo = models.CharField(max_length=255, blank=True, verbose_name="Full Name")
+    compania = models.CharField(max_length=255, blank=True, verbose_name="Company")
+    telefono = models.CharField(max_length=20, blank=True, verbose_name="Phone")
+    
+    # Configurar email como el campo de autenticación
+    USERNAME_FIELD = 'email'
+    REQUIRED_FIELDS = ['nombre_completo']  # Requeridos además de email y password
+    
+    class Meta:
+        verbose_name = "Usuario"
+        verbose_name_plural = "Usuarios"
     
     def __str__(self):
-        return f"{self.nombre_completo or self.username} ({self.email})"
+        return f"{self.nombre_completo or self.email}"
+    
+    def save(self, *args, **kwargs):
+        # Si no hay username, usar el email
+        if not self.username:
+            self.username = self.email
+        super().save(*args, **kwargs)
     
     def tiene_permiso(self, permiso):
         """Verifica si el usuario tiene un permiso específico según su perfil"""
@@ -109,6 +161,8 @@ class RepositorioPermiso(models.Model):
     puede_ver = models.BooleanField(default=True, help_text="Can view repository content")
     puede_editar = models.BooleanField(default=False, help_text="Can edit broadcasts")
     puede_borrar = models.BooleanField(default=False, help_text="Can delete broadcasts")
+    # Conjunto de módulos del repositorio que el usuario puede usar
+    modulos_permitidos = models.ManyToManyField(Modulo, blank=True, related_name='permisos_repositorio', help_text="Módulos habilitados para este usuario en este repositorio")
     
     class Meta:
         unique_together = [['usuario', 'repositorio']]
@@ -129,6 +183,7 @@ class Directorio(models.Model):
     repositorio = models.ForeignKey(Repositorio, on_delete=models.CASCADE, related_name='directorios')
     modulo = models.ForeignKey(Modulo, on_delete=models.CASCADE, null=True, blank=True, related_name='directorios', help_text="Módulo al que pertenece este directorio")
     parent = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='subdirectorios', help_text="Directorio padre (para estructura jerárquica)")
+    id_dir = models.CharField(max_length=15, blank=True, null=True, db_index=True, help_text="Folio único del directorio (ej: DIR-mnopq)")
     fecha_creacion = models.DateTimeField(auto_now_add=True)
     
     class Meta:
@@ -143,6 +198,7 @@ class Broadcast(models.Model):
     repositorio = models.ForeignKey(Repositorio, on_delete=models.CASCADE, related_name='broadcasts')
     directorio = models.ForeignKey(Directorio, on_delete=models.SET_NULL, null=True, blank=True, related_name='broadcasts', help_text="Directory/folder where the broadcast is located")
     modulo = models.ForeignKey(Modulo, on_delete=models.SET_NULL, null=True, blank=True, related_name='broadcasts', help_text="Module this file belongs to (Storage, Reel, Broadcast, Audio, Images)")
+    creado_por = models.ForeignKey('CustomUser', on_delete=models.SET_NULL, null=True, blank=True, related_name='broadcasts_creados', help_text="Usuario que registró/subió el broadcast")
     
     archivo_original = models.FileField(upload_to=upload_to_originals, max_length=512, blank=True, null=True, help_text="Original master file uploaded by user")
     nombre_original = models.CharField(max_length=512, blank=True, null=True, help_text="Original filename uploaded")
@@ -162,6 +218,7 @@ class Broadcast(models.Model):
     ]
     estado_transcodificacion = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='PENDIENTE')
     
+    id_content = models.CharField(max_length=15, blank=True, null=True, db_index=True, help_text="Folio único del contenido (ej: CNT-asdfg)")
     pizarra = models.JSONField(default=dict, blank=True, help_text="Flexible broadcast metadata (product, version, etc.)")
 
     fecha_subida = models.DateTimeField(auto_now_add=True)
@@ -209,3 +266,26 @@ class SharedLink(models.Model):
         if self.fecha_expiracion:
             return timezone.now() < self.fecha_expiracion
         return True
+
+
+class SistemaInformacion(models.Model):
+    """Información del sistema: versión, changelog, release history"""
+    version = models.CharField(max_length=50, unique=True, help_text="Número de versión (e.g., 1.0.0)")
+    release_date = models.CharField(max_length=100, help_text="Fecha de lanzamiento (e.g., October 2025)")
+    updates = models.TextField(help_text="Notas de actualización (una línea por cambio)")
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+    is_current = models.BooleanField(default=False, help_text="Es la versión actual del sistema")
+    
+    class Meta:
+        verbose_name = "Información del Sistema"
+        verbose_name_plural = "Información del Sistema"
+        ordering = ['-fecha_creacion']
+    
+    def __str__(self):
+        return f"v{self.version} - {self.release_date}"
+    
+    def save(self, *args, **kwargs):
+        """Si se marca como current, desmarcar las demás"""
+        if self.is_current:
+            SistemaInformacion.objects.filter(is_current=True).update(is_current=False)
+        super().save(*args, **kwargs)

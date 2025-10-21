@@ -190,3 +190,9 @@ CELERY_TASK_SERIALIZER = 'json'
 
 # settings.py
 AUTH_USER_MODEL = 'core.CustomUser'
+
+# Authentication backends - use email for login
+AUTHENTICATION_BACKENDS = [
+    'core.backends.EmailBackend',  # Custom email backend
+    'django.contrib.auth.backends.ModelBackend',  # Fallback to default
+]

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 function Login() {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -29,7 +29,7 @@ function Login() {
           'Content-Type': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ email, password }),
       });
 
       const data = await response.json();
@@ -39,10 +39,10 @@ function Login() {
         // Redirigir al home después del login exitoso
         navigate('/');
       } else {
-        setError(data.message || 'Error iniciar sesión');
+        setError(data.message || 'Login error');
       }
     } catch (err) {
-      setError('Error de conexión. Please intenta de nuevo.');
+      setError('Connection error. Please try again.');
       console.error('Login error:', err);
     } finally {
       setLoading(false);
@@ -57,7 +57,7 @@ function Login() {
           <h1 className="text-5xl font-bold text-white mb-2">
             file<span className="text-blue-500">+</span>
           </h1>
-          <p className="text-gray-400 text-sm">Sistema de Gestión de Files</p>
+          <p className="text-gray-400 text-sm">File Management System</p>
         </div>
 
         {/* Login Form */}
@@ -70,17 +70,17 @@ function Login() {
             )}
 
             <div>
-              <label htmlFor="username" className="block text-sm font-medium text-gray-300 mb-2">
-                User
+              <label htmlFor="email" className="block text-sm font-medium text-gray-300 mb-2">
+                Email
               </label>
               <input
-                id="username"
-                type="text"
+                id="email"
+                type="email"
                 required
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="Ingresa tu user"
+                placeholder="Enter your email"
                 disabled={loading}
               />
             </div>
@@ -96,7 +96,7 @@ function Login() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full px-4 py-3 bg-gray-900 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="Ingresa tu password"
+                placeholder="Enter your password"
                 disabled={loading}
               />
             </div>

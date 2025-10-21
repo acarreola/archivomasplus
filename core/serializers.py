@@ -1,7 +1,7 @@
 import json
 from django.contrib.auth.hashers import make_password
 from rest_framework import serializers
-from .models import Repositorio, Agencia, Broadcast, CustomUser, SharedLink, Directorio, RepositorioPermiso, Modulo, Perfil
+from .models import Repositorio, Agencia, Broadcast, CustomUser, SharedLink, Directorio, RepositorioPermiso, Modulo, Perfil, SistemaInformacion
 
 class PerfilSerializer(serializers.ModelSerializer):
     class Meta:
@@ -16,11 +16,17 @@ class ModuloSerializer(serializers.ModelSerializer):
 class RepositorioPermisoSerializer(serializers.ModelSerializer):
     repositorio_nombre = serializers.CharField(source='repositorio.nombre', read_only=True)
     repositorio_folio = serializers.CharField(source='repositorio.folio', read_only=True)
+    modulos_permitidos = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=Modulo.objects.all(),
+        required=False
+    )
+    modulos_permitidos_detalle = ModuloSerializer(source='modulos_permitidos', many=True, read_only=True)
     
     class Meta:
         model = RepositorioPermiso
         fields = ['id', 'usuario', 'repositorio', 'repositorio_nombre', 'repositorio_folio', 
-                  'puede_ver', 'puede_editar', 'puede_borrar']
+                  'puede_ver', 'puede_editar', 'puede_borrar', 'modulos_permitidos', 'modulos_permitidos_detalle']
 
 class RepositorioSerializer(serializers.ModelSerializer):
     modulos_detalle = ModuloSerializer(source='modulos', many=True, read_only=True)
@@ -34,16 +40,36 @@ class RepositorioSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Repositorio
-        fields = ['id', 'nombre', 'folio', 'clave', 'activo', 'fecha_creacion', 'modulos', 'modulos_detalle', 'modulos_ids']
-        read_only_fields = ['folio', 'fecha_creacion']
+        fields = ['id', 'nombre', 'folio', 'position', 'clave', 'activo', 'fecha_creacion', 'modulos', 'modulos_detalle', 'modulos_ids']
+        read_only_fields = ['fecha_creacion', 'folio']  # Folio is auto-generated
+
+    def validate_clave(self, value):
+        """Validate key is exactly 4 uppercase letters"""
+        if not value:
+            raise serializers.ValidationError('Key (clave) is required.')
+        val = str(value).strip().upper()
+        if len(val) != 4 or not val.isalpha():
+            raise serializers.ValidationError('Key must be exactly 4 uppercase letters (A-Z).')
+        return val
+
+    def to_internal_value(self, data):
+        # Uppercase normalization for clave
+        if 'clave' in data and data['clave']:
+            data = {**data, 'clave': str(data['clave']).strip().upper()}
+        # Remove folio from input - it's auto-generated
+        if 'folio' in data:
+            data = {**data}
+            data.pop('folio', None)
+        return super().to_internal_value(data)
 
 class DirectorioSerializer(serializers.ModelSerializer):
     repositorio_nombre = serializers.CharField(source='repositorio.nombre', read_only=True)
     broadcasts_count = serializers.SerializerMethodField()
+    id_dir = serializers.CharField(read_only=True)
     
     class Meta:
         model = Directorio
-        fields = ['id', 'nombre', 'repositorio', 'repositorio_nombre', 'modulo', 'parent', 'fecha_creacion', 'broadcasts_count']
+        fields = ['id', 'nombre', 'repositorio', 'repositorio_nombre', 'modulo', 'parent', 'id_dir', 'fecha_creacion', 'broadcasts_count']
     
     def get_broadcasts_count(self, obj):
         return obj.broadcasts.count()
@@ -62,6 +88,8 @@ class BroadcastSerializer(serializers.ModelSerializer):
     thumbnail_url = serializers.SerializerMethodField()
     pizarra_thumbnail_url = serializers.SerializerMethodField()
     file_size = serializers.SerializerMethodField()
+    creado_por_username = serializers.CharField(source='creado_por.username', read_only=True)
+    status_display = serializers.SerializerMethodField()
     
     class Meta:
         model = Broadcast
@@ -87,7 +115,10 @@ class BroadcastSerializer(serializers.ModelSerializer):
             'pizarra_thumbnail_url',
             'estado_transcodificacion', 
             'pizarra', 
-            'fecha_subida'
+            'fecha_subida',
+            'creado_por',
+            'creado_por_username',
+            'status_display'
         ]
     
     def get_modulo_info(self, obj):
@@ -108,6 +139,16 @@ class BroadcastSerializer(serializers.ModelSerializer):
             except (OSError, AttributeError):
                 return None
         return None
+
+    def get_status_display(self, obj):
+        # Map to human-friendly status for CSV "Status"
+        mapping = {
+            'PENDIENTE': 'Pending',
+            'PROCESANDO': 'Processing',
+            'COMPLETADO': 'Completed',
+            'ERROR': 'Error'
+        }
+        return mapping.get(obj.estado_transcodificacion, obj.estado_transcodificacion)
     
     def get_thumbnail_url(self, obj):
         """Retorna la URL completa del thumbnail principal si existe"""
@@ -193,29 +234,6 @@ class BroadcastSerializer(serializers.ModelSerializer):
             representation['pizarra'] = instance.pizarra
         return representation
 
-class UserSerializer(serializers.ModelSerializer):
-    # Hacemos la contraseña de solo escritura
-    password = serializers.CharField(write_only=True, required=False)
-    repositorios = serializers.PrimaryKeyRelatedField(
-        many=True, queryset=Repositorio.objects.all(), required=False
-    )
-
-    class Meta:
-        model = CustomUser
-        fields = ['id', 'username', 'email', 'nombre_compania', 'is_active', 'password', 'repositorios']
-
-    def create(self, validated_data):
-        # Encriptamos la contraseña al crear un nuevo usuario
-        validated_data['password'] = make_password(validated_data.get('password'))
-        return super().create(validated_data)
-
-    def update(self, instance, validated_data):
-        # Encriptamos la contraseña si se está actualizando
-        if 'password' in validated_data:
-            validated_data['password'] = make_password(validated_data.get('password'))
-        return super().update(instance, validated_data)
-
-
 class SharedLinkSerializer(serializers.ModelSerializer):
     """Serializer to create and manage shared links"""
     broadcast_data = BroadcastSerializer(source='broadcast', read_only=True)
@@ -284,25 +302,41 @@ class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
     permisos_repositorios = serializers.SerializerMethodField()
     perfil_info = PerfilSerializer(source='perfil', read_only=True)
+    tipo = serializers.SerializerMethodField()  # Para compatibilidad con frontend
     
     class Meta:
         model = CustomUser
         fields = [
             'id', 
-            'username', 
-            'email', 
+            'email',  # Campo principal de login
             'password',
             'perfil',
             'perfil_info',
-            'nombre_completo', 
+            'nombre_completo',
             'compania', 
             'telefono', 
             'is_active',
             'is_superuser',
             'date_joined',
-            'permisos_repositorios'
+            'permisos_repositorios',
+            'tipo'  # Para compatibilidad
         ]
         read_only_fields = ['id', 'date_joined']
+    
+    def get_tipo(self, obj):
+        """Devuelve el tipo basado en el perfil para compatibilidad con frontend"""
+        if obj.is_superuser:
+            return 'administrador'
+        if obj.perfil:
+            clave = obj.perfil.clave.lower()
+            # Map profile keys to frontend expected values
+            if clave in ['admin', 'administrador']:
+                return 'administrador'
+            elif clave in ['operador', 'operator']:
+                return 'operador'
+            else:
+                return 'cliente'
+        return 'cliente'
     
     def get_permisos_repositorios(self, obj):
         permisos = RepositorioPermiso.objects.filter(usuario=obj).select_related('repositorio')
@@ -316,16 +350,31 @@ class UserSerializer(serializers.ModelSerializer):
             'puede_borrar': p.puede_borrar
         } for p in permisos]
     
+    def validate_email(self, value):
+        """Validar que el email sea único (excepto para el mismo usuario)"""
+        user_id = self.instance.id if self.instance else None
+        if CustomUser.objects.filter(email=value).exclude(id=user_id).exists():
+            raise serializers.ValidationError("A user with this email already exists.")
+        return value
+    
     def create(self, validated_data):
         password = validated_data.pop('password', None)
+        
+        # El email es obligatorio
+        if not validated_data.get('email'):
+            raise serializers.ValidationError({'email': 'Email is required.'})
+        
+        # nombre_completo es obligatorio
+        if not validated_data.get('nombre_completo'):
+            raise serializers.ValidationError({'nombre_completo': 'Full name is required.'})
         
         user = CustomUser(**validated_data)
         if password:
             user.set_password(password)
         else:
-            user.set_unusable_password()
-        user.save()
+            raise serializers.ValidationError({'password': 'Password is required for new users.'})
         
+        user.save()
         return user
     
     def update(self, instance, validated_data):
@@ -338,5 +387,11 @@ class UserSerializer(serializers.ModelSerializer):
             instance.set_password(password)
         
         instance.save()
-        
         return instance
+
+
+class SistemaInformacionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SistemaInformacion
+        fields = ['id', 'version', 'release_date', 'updates', 'fecha_creacion', 'is_current']
+        read_only_fields = ['fecha_creacion']

@@ -248,6 +248,11 @@ def transcode_video(broadcast_id):
         )
         print(f"✓ Pizarra generada: {pizarra_path}")
 
+        # Guardar thumbnails de inmediato para que el frontend los vea aunque falle luego
+        broadcast.thumbnail = f'thumbnails/{thumbnail_filename}'
+        broadcast.pizarra_thumbnail = f'pizarra/{pizarra_filename}'
+        broadcast.save(update_fields=['thumbnail', 'pizarra_thumbnail'])
+
         # ====================================================================
         # PASO 3: TRANSCODIFICAR A H.264 (para compatibilidad y descarga)
         # ====================================================================
@@ -317,6 +322,10 @@ def transcode_video(broadcast_id):
             text=True
         )
         print(f"✓ H.264 completado: {output_h264_path}")
+
+        # Guardar ruta H.264 inmediatamente
+        broadcast.ruta_h264 = f'H264/{output_h264_filename}'
+        broadcast.save(update_fields=['ruta_h264'])
 
         # ====================================================================
         # PASO 4: TRANSCODIFICAR A H.265 (para proxy/streaming eficiente)
@@ -390,12 +399,9 @@ def transcode_video(broadcast_id):
         # PASO 5: GUARDAR RUTAS EN EL MODELO Y MARCAR COMO COMPLETADO
         # ====================================================================
         print(f"💾 Guardando rutas en base de datos...")
-        broadcast.ruta_h264 = f'H264/{output_h264_filename}'
         broadcast.ruta_proxy = f'support/{output_h265_filename}'
-        broadcast.thumbnail = f'thumbnails/{thumbnail_filename}'
-        broadcast.pizarra_thumbnail = f'pizarra/{pizarra_filename}'
         broadcast.estado_transcodificacion = 'COMPLETADO'
-        broadcast.save()
+        broadcast.save(update_fields=['ruta_proxy', 'estado_transcodificacion'])
         print(f"✅ Transcodificación completada exitosamente para broadcast {broadcast.id}")
 
         return {
@@ -413,8 +419,14 @@ def transcode_video(broadcast_id):
     except subprocess.CalledProcessError as e:
         # Error de FFmpeg
         if 'broadcast' in locals():
+            # Conservar cualquier progreso parcial (thumbnails/ruta_h264) y marcar ERROR
             broadcast.estado_transcodificacion = 'ERROR'
-            broadcast.save()
+            broadcast.save(update_fields=['estado_transcodificacion'])
+        # Log básico para depuración rápida en worker
+        try:
+            print('✗ FFmpeg error:', e.stderr[:2000])
+        except Exception:
+            pass
         return {
             'error': 'FFmpeg falló',
             'stderr': e.stderr,

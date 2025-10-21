@@ -1,18 +1,18 @@
-import { createContext, useState, useContext, useEffect } from 'react';
+import * as React from 'react';
 
-// Ensure a single AuthContext instance even if the module is evaluated twice
+// Use a global singleton to avoid duplicate contexts on HMR or multiple loads
 const getGlobalThis = () => (typeof window !== 'undefined' ? window : globalThis);
 const __global = getGlobalThis();
 if (!__global.__ARCHIVO_AUTH_CONTEXT__) {
-  __global.__ARCHIVO_AUTH_CONTEXT__ = createContext(null);
+  __global.__ARCHIVO_AUTH_CONTEXT__ = React.createContext(null);
 }
 const AuthContext = __global.__ARCHIVO_AUTH_CONTEXT__;
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
 
-  useEffect(() => {
+  React.useEffect(() => {
     checkAuth();
   }, []);
 
@@ -97,13 +97,9 @@ export function AuthProvider({ children }) {
 }
 
 export function useAuth() {
-  const context = useContext(AuthContext);
-  if (!context) {
-    // Return a safe default so the app doesn't crash; also surface a console error once.
-    if (typeof console !== 'undefined' && !__global.__AUTH_HOOK_WARNED__) {
-      console.error('[Auth] useAuth called outside of AuthProvider or context mismatch. Falling back to default.');
-      __global.__AUTH_HOOK_WARNED__ = true;
-    }
+  // Access via React namespace to avoid potential named import issues
+  const context = React.useContext(AuthContext);
+  if (context == null) {
     return {
       user: null,
       loading: true,

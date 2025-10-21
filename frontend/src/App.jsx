@@ -4,9 +4,14 @@ import Login from './components/Login';
 import RequireAuth from './components/RequireAuth';
 import Navbar from './components/Navbar';
 import RepositoriosManager from './components/RepositoriosManager';
+import RepoContentPage from './components/RepoContentPage'; // Importar la nueva página
 import UsuariosManager from './components/UsuariosManager';
 import ComercialesManager from './components/ComercialesManager';
-import ConfiguracionManager from './components/ConfiguracionManager';
+import ModulosManager from './components/ModulosManager';
+import PerfilesManager from './components/PerfilesManager';
+import SystemInfoManager from './components/SystemInfoManager';
+import VinculacionesManager from './components/VinculacionesManager';
+import HistoryManager from './components/HistoryManager';
 import SharedPlayer from './components/SharedPlayer';
 
 // Admin area component
@@ -19,8 +24,16 @@ function AdminArea() {
         return <RepositoriosManager />;
       case 'usuarios':
         return <UsuariosManager />;
-      case 'configuracion':
-        return <ConfiguracionManager />;
+      case 'modulos':
+        return <ModulosManager />;
+      case 'perfiles':
+        return <PerfilesManager />;
+      case 'system-info':
+        return <SystemInfoManager />;
+      case 'vinculaciones':
+        return <VinculacionesManager />;
+      case 'history':
+        return <HistoryManager />;
       default:
         return <RepositoriosManager />;
     }
@@ -30,43 +43,83 @@ function AdminArea() {
     <div className="bg-gray-100 min-h-screen flex flex-col">
       <Navbar isAdminArea={true} />
       <main className="flex-1 overflow-hidden">
-        <div className="h-full p-6">
-          <div className="bg-white rounded-lg shadow-lg h-full flex flex-col">
+        <div className="h-full">
+          <div className="bg-white h-full flex flex-col">
             <div className="border-b border-gray-200">
-              <nav className="flex -mb-px">
+              <nav className="flex -mb-px overflow-x-auto">
                 <button 
                   onClick={() => setActiveTab('repositorios')}
-                  className={`px-6 py-4 text-sm font-medium ${
+                  className={`px-6 py-4 text-sm font-medium whitespace-nowrap ${
                     activeTab === 'repositorios' 
                       ? 'text-blue-600 border-b-2 border-blue-600' 
                       : 'text-gray-600 hover:text-gray-800'
                   }`}
                 >
-                  Repositorios
+                  Repositories
                 </button>
                 <button 
                   onClick={() => setActiveTab('usuarios')}
-                  className={`px-6 py-4 text-sm font-medium ${
+                  className={`px-6 py-4 text-sm font-medium whitespace-nowrap ${
                     activeTab === 'usuarios' 
                       ? 'text-blue-600 border-b-2 border-blue-600' 
                       : 'text-gray-600 hover:text-gray-800'
                   }`}
                 >
-                  Usuarios
+                  Users
                 </button>
                 <button 
-                  onClick={() => setActiveTab('configuracion')}
-                  className={`px-6 py-4 text-sm font-medium ${
-                    activeTab === 'configuracion' 
+                  onClick={() => setActiveTab('modulos')}
+                  className={`px-6 py-4 text-sm font-medium whitespace-nowrap ${
+                    activeTab === 'modulos' 
                       ? 'text-blue-600 border-b-2 border-blue-600' 
                       : 'text-gray-600 hover:text-gray-800'
                   }`}
                 >
-                  Configuración
+                  Modules
+                </button>
+                <button 
+                  onClick={() => setActiveTab('perfiles')}
+                  className={`px-6 py-4 text-sm font-medium whitespace-nowrap ${
+                    activeTab === 'perfiles' 
+                      ? 'text-blue-600 border-b-2 border-blue-600' 
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  Profiles
+                </button>
+                <button 
+                  onClick={() => setActiveTab('system-info')}
+                  className={`px-6 py-4 text-sm font-medium whitespace-nowrap ${
+                    activeTab === 'system-info' 
+                      ? 'text-blue-600 border-b-2 border-blue-600' 
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  System Information
+                </button>
+                <button 
+                  onClick={() => setActiveTab('vinculaciones')}
+                  className={`px-6 py-4 text-sm font-medium whitespace-nowrap ${
+                    activeTab === 'vinculaciones' 
+                      ? 'text-blue-600 border-b-2 border-blue-600' 
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  Connections
+                </button>
+                <button 
+                  onClick={() => setActiveTab('history')}
+                  className={`px-6 py-4 text-sm font-medium whitespace-nowrap ${
+                    activeTab === 'history' 
+                      ? 'text-blue-600 border-b-2 border-blue-600' 
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  History
                 </button>
               </nav>
             </div>
-            <div className="p-6 flex-1 overflow-auto">
+            <div className="flex-1 overflow-auto">
               {renderContent()}
             </div>
           </div>
@@ -103,6 +156,23 @@ function App() {
       element: (
         <RequireAuth>
           <AdminArea />
+        </RequireAuth>
+      ),
+    },
+
+    // Nueva ruta para el contenido del repositorio
+    {
+      path: '/repositorio/:repoId', // Nueva ruta para el contenido del repositorio
+      element: (
+        <RequireAuth>
+          <div className="bg-gray-100 min-h-screen">
+            <Navbar isAdminArea={true} />
+            <main className="flex-1 overflow-hidden p-6">
+              <div className="bg-white rounded-lg shadow-lg h-full">
+                <RepoContentPage />
+              </div>
+            </main>
+          </div>
         </RequireAuth>
       ),
     },

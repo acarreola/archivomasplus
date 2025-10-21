@@ -46,15 +46,37 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile.frontend
-    command: npm run dev -- --host 0.0.0.0
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
+    command: npm run dev -- --host 0.0.0.0 --force
     ports:
       - "5173:5173"
     depends_on:
       - backend
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: archivoplus_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@archivoplus.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+
+  adminer:
+    image: adminer:latest
+    container_name: archivoplus_adminer
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+
 volumes:
   postgres_data:
+  pgadmin_data:
 
   
