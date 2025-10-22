@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import axios from '../utils/axios';
+import VideoPlayer from './VideoPlayer';
 
 const PRESETS = {
   'apple-tv': {
@@ -203,11 +204,9 @@ export default function EncodingModal({ comercial, onClose, onSuccess }) {
             <div className="lg:col-span-1">
               <div className="bg-black rounded-lg overflow-hidden mb-4" style={{ aspectRatio: '16/9' }}>
                 {comercial.ruta_proxy ? (
-                  <video 
-                    controls 
-                    className="w-full h-full"
-                    style={{ objectFit: 'contain' }}
+                  <VideoPlayer
                     src={`http://localhost:8000/media/${comercial.ruta_proxy}`}
+                    poster={comercial.thumbnail ? `http://localhost:8000/media/${comercial.thumbnail}` : undefined}
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-white">

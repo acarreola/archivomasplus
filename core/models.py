@@ -217,6 +217,7 @@ class Broadcast(models.Model):
         ('ERROR', 'Error')
     ]
     estado_transcodificacion = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='PENDIENTE')
+    last_error = models.TextField(blank=True, null=True, help_text="Último error de transcodificación (stderr o mensaje)")
     
     id_content = models.CharField(max_length=15, blank=True, null=True, db_index=True, help_text="Folio único del contenido (ej: CNT-asdfg)")
     pizarra = models.JSONField(default=dict, blank=True, help_text="Flexible broadcast metadata (product, version, etc.)")
@@ -227,6 +228,40 @@ class Broadcast(models.Model):
         # Try to get product from pizarra, with fallback if it doesn't exist
         producto = self.pizarra.get('producto', 'N/A')
         return f"{producto} ({self.repositorio.nombre})"
+
+
+class Audio(models.Model):
+    """Archivos de audio similares a Broadcast pero para contenido de audio"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    repositorio = models.ForeignKey(Repositorio, on_delete=models.CASCADE, related_name='audios')
+    directorio = models.ForeignKey(Directorio, on_delete=models.SET_NULL, null=True, blank=True, related_name='audios', help_text="Directory/folder where the audio is located")
+    modulo = models.ForeignKey(Modulo, on_delete=models.SET_NULL, null=True, blank=True, related_name='audios', help_text="Module this file belongs to (Audio)")
+    creado_por = models.ForeignKey('CustomUser', on_delete=models.SET_NULL, null=True, blank=True, related_name='audios_creados', help_text="Usuario que registró/subió el audio")
+    
+    archivo_original = models.FileField(upload_to=upload_to_originals, max_length=512, blank=True, null=True, help_text="Original audio file uploaded by user")
+    nombre_original = models.CharField(max_length=512, blank=True, null=True, help_text="Original filename uploaded")
+    
+    ruta_mp3 = models.CharField(max_length=1024, blank=True, null=True, help_text="Path to converted MP3 file for playback")
+    
+    thumbnail = models.ImageField(upload_to='thumbnails/', blank=True, null=True, help_text="Audio icon thumbnail to display in frontend")
+    pizarra_thumbnail = models.ImageField(upload_to='pizarra/', blank=True, null=True, help_text="Audio icon for edit view")
+
+    ESTADO_CHOICES = [
+        ('PENDIENTE', 'Pending'), 
+        ('PROCESANDO', 'Processing'), 
+        ('COMPLETADO', 'Completed'), 
+        ('ERROR', 'Error')
+    ]
+    estado_procesamiento = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='PENDIENTE')
+    
+    id_content = models.CharField(max_length=15, blank=True, null=True, db_index=True, help_text="Folio único del contenido (ej: AUD-asdfg)")
+    metadata = models.JSONField(default=dict, blank=True, help_text="Audio metadata (title, artist, album, etc.)")
+
+    fecha_subida = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        titulo = self.metadata.get('titulo', self.nombre_original or 'N/A')
+        return f"{titulo} ({self.repositorio.nombre})"
 
 
 class SharedLink(models.Model):

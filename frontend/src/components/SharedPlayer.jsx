@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
+import VideoPlayer from './VideoPlayer';
 
 const API_BASE = 'http://localhost:8000/api';
 
@@ -175,17 +176,11 @@ export default function SharedPlayer() {
       <div className="max-w-7xl mx-auto p-6">
         {/* Video Player */}
         <div className="bg-gray-800 rounded-lg shadow-2xl overflow-hidden border border-gray-700 mb-6">
-          <div className="aspect-video bg-black">
-            <video
-              controls
-              className="w-full h-full"
-              poster={comercial_data.thumbnail_url}
-              onPlay={handlePlay}
-            >
-              <source src={comercial_data.video_url} type="video/mp4" />
-              Tu navegador no soporta el tag de video.
-            </video>
-          </div>
+          <VideoPlayer
+            src={comercial_data.video_url}
+            poster={comercial_data.thumbnail_url}
+            onPlay={handlePlay}
+          />
         </div>
 
         {/* Metadata & Actions */}

@@ -9,9 +9,9 @@ from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
-from .models import Repositorio, Agencia, Broadcast, CustomUser, SharedLink, Directorio, RepositorioPermiso, Modulo, Perfil, SistemaInformacion
+from .models import Repositorio, Agencia, Broadcast, Audio, CustomUser, SharedLink, Directorio, RepositorioPermiso, Modulo, Perfil, SistemaInformacion
 from .serializers import (
-    RepositorioSerializer, AgenciaSerializer, BroadcastSerializer, 
+    RepositorioSerializer, AgenciaSerializer, BroadcastSerializer, AudioSerializer,
     UserSerializer, SharedLinkSerializer, SharedLinkPublicSerializer, DirectorioSerializer,
     RepositorioPermisoSerializer, ModuloSerializer, PerfilSerializer, SistemaInformacionSerializer
 )
@@ -94,7 +94,11 @@ class RepositorioViewSet(viewsets.ModelViewSet):
         if user.is_superuser or user.is_staff:
             return Repositorio.objects.all()
         
-        return user.repositorios.all()
+        # Usuarios normales: repositorios con permiso (puede_ver)
+        return Repositorio.objects.filter(
+            permisos_usuario__usuario=user,
+            permisos_usuario__puede_ver=True
+        ).distinct()
 
 class AgenciaViewSet(viewsets.ModelViewSet):
     queryset = Agencia.objects.all()
@@ -168,7 +172,10 @@ class BroadcastViewSet(viewsets.ModelViewSet):
             return Broadcast.objects.all().order_by('-fecha_subida')
         
         # Usuarios normales solo ven broadcasts de sus repositorios asignados
-        repositorios_ids = user.repositorios.values_list('id', flat=True)
+        repositorios_ids = RepositorioPermiso.objects.filter(
+            usuario=user,
+            puede_ver=True
+        ).values_list('repositorio_id', flat=True)
         return Broadcast.objects.filter(
             repositorio_id__in=repositorios_ids
         ).order_by('-fecha_subida')
@@ -382,6 +389,30 @@ class BroadcastViewSet(viewsets.ModelViewSet):
             'broadcast_id': str(broadcast_id),
             'preset': preset_id
         }, status=status.HTTP_202_ACCEPTED)
+    
+    @action(detail=True, methods=['post'], url_path='reprocess')
+    def reprocess(self, request, pk=None):
+        """Dispara nuevamente el procesamiento (transcodificación) del broadcast."""
+        try:
+            broadcast = self.get_object()
+            
+            if not broadcast.archivo_original:
+                return Response(
+                    {'error': 'El broadcast no tiene archivo original'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            broadcast.estado_transcodificacion = 'PROCESANDO'
+            broadcast.last_error = None
+            broadcast.save(update_fields=['estado_transcodificacion', 'last_error'])
+            
+            transcode_video.delay(str(broadcast.id))
+            
+            logger.info(f"🔄 Reprocessing iniciado para broadcast {broadcast.id}")
+            return Response({'status': 'queued', 'broadcast_id': str(broadcast.id)})
+        except Exception as e:
+            logger.error(f"❌ Error al reprocessar broadcast: {e}")
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
     
     @action(detail=False, methods=['post'], url_path='cancel_stuck_processes')
     def cancel_stuck_processes(self, request):
@@ -678,6 +709,173 @@ class BroadcastViewSet(viewsets.ModelViewSet):
             'broadcasts': initiated[:50]  # Primeros 50
         }, status=status.HTTP_202_ACCEPTED)
 
+    @action(detail=False, methods=['get'], url_path='transcode_status')
+    def transcode_status(self, request):
+        """
+        Resumen de estado de transcodificación por repositorio con razones de pendientes y muestras de errores.
+        Query params:
+          - repositorio: ID del repositorio (opcional; si no se envía, usa permisos del usuario en todos los repos)
+          - limit_errors: número de muestras de errores a incluir (default 25)
+        """
+        try:
+            limit_errors = int(request.query_params.get('limit_errors', 25))
+        except Exception:
+            limit_errors = 25
+
+        qs = self.get_queryset()
+
+        # Filtrar por repositorio si viene en query
+        repo_id = request.query_params.get('repositorio')
+        if repo_id:
+            qs = qs.filter(repositorio_id=repo_id)
+
+        total = qs.count()
+
+        estados = {
+            'PENDIENTE': qs.filter(estado_transcodificacion='PENDIENTE').count(),
+            'PROCESANDO': qs.filter(estado_transcodificacion='PROCESANDO').count(),
+            'COMPLETADO': qs.filter(estado_transcodificacion='COMPLETADO').count(),
+            'ERROR': qs.filter(estado_transcodificacion='ERROR').count(),
+        }
+
+        # Analizar razones de pendientes
+        pendientes = qs.filter(estado_transcodificacion='PENDIENTE')
+        sin_original = pendientes.filter(archivo_original__isnull=True) | pendientes.filter(archivo_original='')
+        sin_original_count = sin_original.count()
+
+        # Con archivo asignado pero inexistente en filesystem
+        with_original = pendientes.exclude(archivo_original__isnull=True).exclude(archivo_original='')
+        archivo_no_existe = 0
+        listo_para_iniciar = 0
+        muestras_archivo_no_existe = []
+        try:
+            for b in with_original[:500]:  # limitar inspección de filesystem
+                try:
+                    # path absoluto del original
+                    try:
+                        file_path = b.archivo_original.path
+                    except Exception:
+                        from django.conf import settings as dj_settings
+                        file_path = os.path.join(dj_settings.MEDIA_ROOT, str(b.archivo_original))
+                    if not os.path.exists(file_path):
+                        archivo_no_existe += 1
+                        if len(muestras_archivo_no_existe) < 10:
+                            muestras_archivo_no_existe.append({
+                                'id': str(b.id),
+                                'nombre': b.nombre_original,
+                                'archivo': str(b.archivo_original)
+                            })
+                    else:
+                        listo_para_iniciar += 1
+                except Exception:
+                    # Si algo falla al evaluar el path, considerarlo como no existente
+                    archivo_no_existe += 1
+        except Exception:
+            # En caso de error inesperado, seguir sin abortar
+            pass
+
+        pendientes_por_razon = {
+            'Sin archivo original': sin_original_count,
+            'Archivo no existe': archivo_no_existe,
+            'Listo para iniciar': listo_para_iniciar,
+        }
+
+        # Muestras de errores recientes (recortes de last_error)
+        errores_qs = qs.filter(estado_transcodificacion='ERROR').order_by('-fecha_subida')
+        errores_muestras = []
+        for b in errores_qs[:limit_errors]:
+            err = (b.last_error or '').strip()
+            if err and len(err) > 500:
+                err = err[:500] + '…'
+            errores_muestras.append({
+                'id': str(b.id),
+                'nombre': b.nombre_original,
+                'archivo': str(b.archivo_original) if b.archivo_original else None,
+                'last_error': err or None
+            })
+
+        return Response({
+            'total': total,
+            'estados': estados,
+            'pendientes_por_razon': pendientes_por_razon,
+            'muestras_archivo_no_existe': muestras_archivo_no_existe,
+            'errores_muestras': errores_muestras,
+        })
+
+    @action(detail=False, methods=['get'], url_path='pending_details')
+    def pending_details(self, request):
+        """
+        Lista detallada de pendientes por razón.
+        Query params:
+          - repositorio: ID del repositorio (opcional)
+          - reason: sin_archivo | archivo_no_existe | listo_para_iniciar (requerido)
+          - limit: cantidad a retornar (default 50)
+          - offset: desplazamiento (default 0)
+        """
+        reason = request.query_params.get('reason')
+        if reason not in {'sin_archivo', 'archivo_no_existe', 'listo_para_iniciar'}:
+            return Response({'error': 'reason inválido'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            limit = int(request.query_params.get('limit', 50))
+            offset = int(request.query_params.get('offset', 0))
+        except Exception:
+            limit, offset = 50, 0
+
+        qs = self.get_queryset().filter(estado_transcodificacion='PENDIENTE')
+        repo_id = request.query_params.get('repositorio')
+        if repo_id:
+            qs = qs.filter(repositorio_id=repo_id)
+
+        items = []
+
+        if reason == 'sin_archivo':
+            base = qs.filter(archivo_original__isnull=True) | qs.filter(archivo_original='')
+            for b in base.order_by('-fecha_subida')[offset:offset+limit]:
+                items.append({
+                    'id': str(b.id),
+                    'nombre': b.nombre_original,
+                    'archivo': None,
+                    'razon': 'Sin archivo original'
+                })
+
+        elif reason == 'archivo_no_existe' or reason == 'listo_para_iniciar':
+            base = qs.exclude(archivo_original__isnull=True).exclude(archivo_original='')
+            # Para evaluar presencia en filesystem, iteramos con margen amplio y aplicamos windowing manual
+            matched = []
+            skipped = 0
+            for b in base.order_by('-fecha_subida'):
+                try:
+                    try:
+                        file_path = b.archivo_original.path
+                    except Exception:
+                        file_path = os.path.join(settings.MEDIA_ROOT, str(b.archivo_original))
+                    exists = os.path.exists(file_path)
+                except Exception:
+                    exists = False
+
+                is_missing = not exists
+                if reason == 'archivo_no_existe' and is_missing:
+                    matched.append(b)
+                if reason == 'listo_para_iniciar' and not is_missing:
+                    matched.append(b)
+                # apply offset/limit
+                if len(matched) >= offset + limit:
+                    break
+            window = matched[offset:offset+limit]
+            for b in window:
+                items.append({
+                    'id': str(b.id),
+                    'nombre': b.nombre_original,
+                    'archivo': str(b.archivo_original),
+                    'razon': 'Archivo no existe' if reason == 'archivo_no_existe' else 'Listo para iniciar'
+                })
+
+        return Response({
+            'count': len(items),
+            'items': items
+        })
+
     @action(detail=False, methods=['get'], url_path='sources_overview')
     def sources_overview(self, request):
         """
@@ -799,6 +997,75 @@ class BroadcastViewSet(viewsets.ModelViewSet):
                 {'error': 'Archivo no encontrado en la lista de codificados'},
                 status=status.HTTP_404_NOT_FOUND
             )
+
+    @action(detail=True, methods=['post'], url_path='retry')
+    def retry(self, request, pk=None):
+        """Reintenta la transcodificación de un broadcast específico."""
+        try:
+            b = self.get_object()
+            # Validar archivo original presente y existente
+            if not b.archivo_original:
+                return Response({'error': 'El broadcast no tiene archivo original asignado'}, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                file_path = b.archivo_original.path
+            except Exception:
+                file_path = os.path.join(settings.MEDIA_ROOT, str(b.archivo_original))
+            if not os.path.exists(file_path):
+                return Response({'error': f'Archivo original no existe en el filesystem: {b.archivo_original}'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Limpiar error previo y poner en PROCESANDO
+            b.last_error = ''
+            b.estado_transcodificacion = 'PROCESANDO'
+            b.save(update_fields=['last_error', 'estado_transcodificacion'])
+            transcode_video.delay(str(b.id))
+            return Response({'status': 'queued', 'id': str(b.id)})
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['post'], url_path='retry_errors')
+    def retry_errors(self, request):
+        """
+        Reintenta en lote todos los broadcasts en ERROR para un repositorio.
+        Body: { repositorio_id }
+        """
+        repositorio_id = request.data.get('repositorio_id')
+        if not repositorio_id:
+            return Response({'error': 'repositorio_id es requerido'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            _ = Repositorio.objects.get(id=repositorio_id)
+        except Repositorio.DoesNotExist:
+            return Response({'error': 'Repositorio no encontrado'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Respetar permisos del usuario a través de get_queryset
+        qs = self.get_queryset().filter(repositorio_id=repositorio_id, estado_transcodificacion='ERROR')
+
+        queued = 0
+        skipped_no_file = 0
+        for b in qs.iterator():
+            # Validar archivo presente y existente
+            if not b.archivo_original:
+                skipped_no_file += 1
+                continue
+            try:
+                file_path = b.archivo_original.path
+            except Exception:
+                file_path = os.path.join(settings.MEDIA_ROOT, str(b.archivo_original))
+            if not os.path.exists(file_path):
+                skipped_no_file += 1
+                continue
+
+            b.last_error = ''
+            b.estado_transcodificacion = 'PROCESANDO'
+            b.save(update_fields=['last_error', 'estado_transcodificacion'])
+            transcode_video.delay(str(b.id))
+            queued += 1
+
+        return Response({
+            'success': True,
+            'queued': queued,
+            'skipped_no_file': skipped_no_file
+        }, status=status.HTTP_202_ACCEPTED)
     
     @action(detail=False, methods=['post'], permission_classes=[IsAdminUser])
     def delete_all(self, request):
@@ -860,6 +1127,165 @@ def shared_link_public(request, link_id):
 
 # Hacemos la vista pública accesible sin autenticación
 shared_link_public.permission_classes = [AllowAny]
+
+
+class AudioViewSet(viewsets.ModelViewSet):
+    """ViewSet para archivos de audio, similar a BroadcastViewSet"""
+    serializer_class = AudioSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    filterset_fields = ['repositorio', 'estado_procesamiento', 'modulo', 'directorio']
+    search_fields = ['nombre_original', 'metadata__titulo', 'metadata__artista']
+
+    def get_queryset(self):
+        """
+        Filtrar audios según los permisos del usuario.
+        """
+        user = self.request.user
+        
+        # Para desarrollo: si no está autenticado, retornar todos (modo demo)
+        if not user.is_authenticated:
+            return Audio.objects.all().order_by('-fecha_subida')
+        
+        # Si es superuser o staff, puede ver todos los audios
+        if user.is_superuser or user.is_staff:
+            return Audio.objects.all().order_by('-fecha_subida')
+        
+        # Usuarios normales solo ven audios de sus repositorios asignados
+        repositorios_ids = RepositorioPermiso.objects.filter(
+            usuario=user,
+            puede_ver=True
+        ).values_list('repositorio_id', flat=True)
+        return Audio.objects.filter(
+            repositorio_id__in=repositorios_ids
+        ).order_by('-fecha_subida')
+
+    def create(self, request, *args, **kwargs):
+        """
+        Sobrescribimos el método create para manejar el upload de archivos
+        y disparar la tarea de procesamiento de audio.
+        """
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        extra = {}
+        if request.user and request.user.is_authenticated:
+            extra['creado_por'] = request.user
+        audio = serializer.save(**extra)
+        
+        # Si hay un archivo original, disparar la tarea de procesamiento
+        if audio.archivo_original:
+            # Actualizar estado a PROCESANDO
+            audio.estado_procesamiento = 'PROCESANDO'
+            audio.save()
+            
+            # Disparar tarea Celery asíncrona
+            from core.tasks import process_audio
+            process_audio.delay(str(audio.id))
+        
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+    
+    def _delete_audio_files(self, audio):
+        """Elimina archivos físicos asociados a un audio (original, MP3, thumbnails)."""
+        archivos_a_eliminar = []
+
+        # 1. Archivo original
+        if audio.archivo_original:
+            try:
+                archivos_a_eliminar.append(audio.archivo_original.path)
+                logger.info(f"  - Archivo original: {audio.archivo_original.path}")
+            except Exception as e:
+                logger.error(f"  - Error obteniendo path del original: {e}")
+
+        # 2. Archivo MP3 (convertido)
+        if getattr(audio, 'ruta_mp3', None):
+            try:
+                mp3_path = os.path.join(settings.MEDIA_ROOT, audio.ruta_mp3)
+                archivos_a_eliminar.append(mp3_path)
+                logger.info(f"  - Archivo MP3: {mp3_path}")
+            except Exception as e:
+                logger.error(f"  - Error obteniendo path del MP3: {e}")
+
+        # 3. Thumbnail
+        if getattr(audio, 'thumbnail', None):
+            try:
+                thumbnail_path = os.path.join(settings.MEDIA_ROOT, str(audio.thumbnail))
+                archivos_a_eliminar.append(thumbnail_path)
+                logger.info(f"  - Thumbnail: {thumbnail_path}")
+            except Exception as e:
+                logger.error(f"  - Error obteniendo path del thumbnail: {e}")
+
+        # 4. Pizarra thumbnail
+        if getattr(audio, 'pizarra_thumbnail', None):
+            try:
+                pizarra_path = os.path.join(settings.MEDIA_ROOT, str(audio.pizarra_thumbnail))
+                archivos_a_eliminar.append(pizarra_path)
+                logger.info(f"  - Pizarra thumbnail: {pizarra_path}")
+            except Exception as e:
+                logger.error(f"  - Error obteniendo path del pizarra: {e}")
+
+        # Eliminar todos los archivos físicos
+        for archivo_path in archivos_a_eliminar:
+            try:
+                if os.path.exists(archivo_path):
+                    os.remove(archivo_path)
+                    logger.info(f"  ✓ Eliminado: {archivo_path}")
+                else:
+                    logger.warning(f"  ⚠ No existe: {archivo_path}")
+            except Exception as e:
+                logger.error(f"  ✗ Error al eliminar {archivo_path}: {e}")
+
+    def destroy(self, request, *args, **kwargs):
+        """
+        Sobrescribimos el método destroy para eliminar todos los archivos físicos
+        asociados al audio antes de eliminarlo de la base de datos.
+        """
+        audio = self.get_object()
+        logger.info(f"🗑️  Eliminando audio {audio.id}")
+        self._delete_audio_files(audio)
+        logger.info(f"  ✓ Registro eliminado de la base de datos")
+        return super().destroy(request, *args, **kwargs)
+
+    @action(detail=True, methods=['post'], url_path='reprocess')
+    def reprocess(self, request, pk=None):
+        """Dispara nuevamente el procesamiento (encode) del audio."""
+        try:
+            audio = self.get_object()
+            audio.estado_procesamiento = 'PROCESANDO'
+            audio.save(update_fields=['estado_procesamiento'])
+            from core.tasks import process_audio
+            process_audio.delay(str(audio.id))
+            return Response({'status': 'queued'})
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['post'], url_path='encode')
+    def encode_custom(self, request):
+        """
+        Endpoint para codificación personalizada de audios.
+        Recibe la configuración de encoding y dispara una tarea Celery.
+        """
+        audio_id = request.data.get('audio_id')
+        settings_data = request.data.get('settings', {})
+        preset_id = request.data.get('preset_id', 'custom')
+        
+        if not audio_id:
+            return Response({'error': 'audio_id es requerido'}, status=status.HTTP_400_BAD_REQUEST)
+
+        from .models import Audio
+        try:
+            audio = Audio.objects.get(id=audio_id)
+        except Audio.DoesNotExist:
+            return Response({'error': 'Audio no encontrado'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not audio.archivo_original:
+            return Response({'error': 'El audio no tiene archivo original'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Disparar tarea Celery con los settings
+        from .tasks import encode_custom_audio
+        encode_custom_audio.delay(audio_id=str(audio_id), encoding_settings=settings_data, preset_id=preset_id)
+
+        logger.info(f"🎵 Codificación personalizada iniciada para audio {audio_id} con preset {preset_id}")
+        return Response({'message': 'Codificación iniciada', 'audio_id': str(audio_id), 'preset': preset_id}, status=status.HTTP_202_ACCEPTED)
 
 
 class SistemaInformacionViewSet(viewsets.ModelViewSet):

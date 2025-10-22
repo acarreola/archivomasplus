@@ -5,9 +5,15 @@ services:
     container_name: archivoplus_worker
     build: .
     command: celery -A archivoplus_backend worker -l info
+    environment:
+      - DB_ENGINE=sqlite
     volumes:
-      - .:/app
-      - ./media:/app/media
+      - type: bind
+        source: .
+        target: /app
+      - type: bind
+        source: ${MEDIA_HOST_PATH:-./media}
+        target: /app/media
     depends_on:
       - backend
       - redis
@@ -32,9 +38,15 @@ services:
     container_name: archivoplus_backend
     build: .
     command: python manage.py runserver 0.0.0.0:8000
+    environment:
+      - DB_ENGINE=sqlite
     volumes:
-        - .:/app
-        - ./media:/app/media # <-- Añade esta línea
+        - type: bind
+          source: .
+          target: /app
+        - type: bind
+          source: ${MEDIA_HOST_PATH:-./media}
+          target: /app/media # Bind host media path (external disk) into container
 # ...
     ports:
       - "8000:8000"

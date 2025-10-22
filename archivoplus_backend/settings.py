@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -74,21 +75,32 @@ TEMPLATES = [
 WSGI_APPLICATION = 'archivoplus_backend.wsgi.application'
 
 
-# Database
-# https://docs.djangoproject.com/en/5.2/ref/settings/#databases
+"""
+Database configuration
+Make engine configurable via env DB_ENGINE (sqlite|postgres). Defaults to sqlite to allow using local db.sqlite3.
+For postgres, also supports DB_NAME, DB_USER, DB_PASSWORD, DB_HOST, DB_PORT envs.
+"""
 
-# archivoplus/archivoplus_backend/settings.py
+DB_ENGINE = os.getenv('DB_ENGINE', 'sqlite').lower()
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'archivoplus_db',
-        'USER': 'archivoplus_user',
-        'PASSWORD': 'archivoplus_pass',
-        'HOST': 'db', # Este es el nombre del servicio en docker-compose.yml
-        'PORT': 5432,
+if DB_ENGINE == 'sqlite':
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.getenv('DB_NAME', 'archivoplus_db'),
+            'USER': os.getenv('DB_USER', 'archivoplus_user'),
+            'PASSWORD': os.getenv('DB_PASSWORD', 'archivoplus_pass'),
+            'HOST': os.getenv('DB_HOST', 'db'),
+            'PORT': int(os.getenv('DB_PORT', '5432')),
+        }
+    }
 
 
 
@@ -169,7 +181,10 @@ CSRF_TRUSTED_ORIGINS = [
 
 # settings.py
 MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+# Allow overriding MEDIA_ROOT via env for non-Docker or custom setups.
+# Inside Docker, we bind-mount the host path to /app/media, so the default works.
+# To override, set MEDIA_CONTAINER_PATH in the environment (absolute path inside the container/host process).
+MEDIA_ROOT = Path(os.getenv('MEDIA_CONTAINER_PATH') or (BASE_DIR / 'media'))
 
 # REST Framework settings for authentication
 REST_FRAMEWORK = {

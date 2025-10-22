@@ -29,7 +29,8 @@ export default function Navbar({ isAdminArea = false }) {
 
   const handleNavigateToAdmin = () => {
     setShowUserMenu(false);
-    navigate('/admin');
+    // Abrir admin en nueva ventana
+    window.open('/admin', '_blank');
   };
 
   const handleNavigateToHome = () => {

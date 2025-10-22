@@ -1,7 +1,7 @@
 import json
 from django.contrib.auth.hashers import make_password
 from rest_framework import serializers
-from .models import Repositorio, Agencia, Broadcast, CustomUser, SharedLink, Directorio, RepositorioPermiso, Modulo, Perfil, SistemaInformacion
+from .models import Repositorio, Agencia, Broadcast, Audio, CustomUser, SharedLink, Directorio, RepositorioPermiso, Modulo, Perfil, SistemaInformacion
 
 class PerfilSerializer(serializers.ModelSerializer):
     class Meta:
@@ -37,10 +37,17 @@ class RepositorioSerializer(serializers.ModelSerializer):
         write_only=True,
         required=False
     )
+    # Lista de usuarios asignados al repositorio (crea RepositorioPermiso)
+    users_asignados = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=CustomUser.objects.all(),
+        write_only=True,
+        required=False
+    )
     
     class Meta:
         model = Repositorio
-        fields = ['id', 'nombre', 'folio', 'position', 'clave', 'activo', 'fecha_creacion', 'modulos', 'modulos_detalle', 'modulos_ids']
+        fields = ['id', 'nombre', 'folio', 'position', 'clave', 'activo', 'fecha_creacion', 'modulos', 'modulos_detalle', 'modulos_ids', 'users_asignados']
         read_only_fields = ['fecha_creacion', 'folio']  # Folio is auto-generated
 
     def validate_clave(self, value):
@@ -61,6 +68,62 @@ class RepositorioSerializer(serializers.ModelSerializer):
             data = {**data}
             data.pop('folio', None)
         return super().to_internal_value(data)
+
+    def create(self, validated_data):
+        # Extraer campos especiales
+        users = validated_data.pop('users_asignados', []) if 'users_asignados' in validated_data else []
+        modulos = validated_data.pop('modulos', []) if 'modulos' in validated_data else []
+
+        # Crear repositorio
+        repo = Repositorio.objects.create(**validated_data)
+        if modulos:
+            repo.modulos.set(modulos)
+
+        # Crear permisos para usuarios asignados (puede_ver=True por defecto)
+        for user in users:
+            permiso, _ = RepositorioPermiso.objects.get_or_create(usuario=user, repositorio=repo)
+            permiso.puede_ver = True
+            permiso.save()
+            # Si definimos módulos del repo, asignarlos como permitidos por defecto
+            if modulos:
+                permiso.modulos_permitidos.set(modulos)
+
+        return repo
+
+    def update(self, instance, validated_data):
+        users = validated_data.pop('users_asignados', None)
+        modulos = validated_data.pop('modulos', None)
+
+        # Actualizar campos simples
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        # Actualizar módulos del repositorio si fueron enviados
+        if modulos is not None:
+            instance.modulos.set(modulos)
+            # Opcional: actualizar módulos_permitidos para todos los permisos a los del repo
+            for permiso in instance.permisos_usuario.all():
+                permiso.modulos_permitidos.set(modulos)
+
+        # Sincronizar usuarios asignados si fue enviado el campo
+        if users is not None:
+            current_user_ids = set(instance.permisos_usuario.values_list('usuario_id', flat=True))
+            new_user_ids = set([u.id if isinstance(u, CustomUser) else int(u) for u in users])
+            # Crear permisos faltantes
+            to_add = new_user_ids - current_user_ids
+            for uid in to_add:
+                permiso, _ = RepositorioPermiso.objects.get_or_create(usuario_id=uid, repositorio=instance)
+                permiso.puede_ver = True
+                permiso.save()
+                if modulos is not None:
+                    permiso.modulos_permitidos.set(modulos)
+            # Eliminar permisos de usuarios removidos
+            to_remove = current_user_ids - new_user_ids
+            if to_remove:
+                RepositorioPermiso.objects.filter(repositorio=instance, usuario_id__in=to_remove).delete()
+
+        return instance
 
 class DirectorioSerializer(serializers.ModelSerializer):
     repositorio_nombre = serializers.CharField(source='repositorio.nombre', read_only=True)
@@ -90,6 +153,7 @@ class BroadcastSerializer(serializers.ModelSerializer):
     file_size = serializers.SerializerMethodField()
     creado_por_username = serializers.CharField(source='creado_por.username', read_only=True)
     status_display = serializers.SerializerMethodField()
+    last_error = serializers.CharField(read_only=True)
     
     class Meta:
         model = Broadcast
@@ -118,7 +182,8 @@ class BroadcastSerializer(serializers.ModelSerializer):
             'fecha_subida',
             'creado_por',
             'creado_por_username',
-            'status_display'
+            'status_display',
+            'last_error'
         ]
     
     def get_modulo_info(self, obj):
@@ -232,6 +297,150 @@ class BroadcastSerializer(serializers.ModelSerializer):
         # Pizarra is already a dict in the model, no parsing needed
         if hasattr(instance, 'pizarra') and instance.pizarra:
             representation['pizarra'] = instance.pizarra
+        return representation
+
+class AudioSerializer(serializers.ModelSerializer):
+    """Serializer para archivos de audio, similar a BroadcastSerializer"""
+    repositorio_nombre = serializers.CharField(source='repositorio.nombre', read_only=True)
+    repositorio_folio = serializers.CharField(source='repositorio.folio', read_only=True)
+    repositorio_clave = serializers.CharField(source='repositorio.clave', read_only=True)
+    directorio_nombre = serializers.CharField(source='directorio.nombre', read_only=True, allow_null=True)
+    modulo_info = serializers.SerializerMethodField()
+    thumbnail_url = serializers.SerializerMethodField()
+    pizarra_thumbnail_url = serializers.SerializerMethodField()
+    file_size = serializers.SerializerMethodField()
+    creado_por_username = serializers.CharField(source='creado_por.username', read_only=True)
+    status_display = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Audio
+        fields = [
+            'id', 
+            'repositorio', 
+            'repositorio_nombre',
+            'repositorio_folio',
+            'repositorio_clave',
+            'directorio',
+            'directorio_nombre',
+            'modulo',
+            'modulo_info',
+            'archivo_original',
+            'nombre_original',
+            'file_size',
+            'ruta_mp3',
+            'thumbnail',
+            'thumbnail_url',
+            'pizarra_thumbnail',
+            'pizarra_thumbnail_url',
+            'estado_procesamiento', 
+            'metadata', 
+            'fecha_subida',
+            'creado_por',
+            'creado_por_username',
+            'status_display'
+        ]
+    
+    def get_modulo_info(self, obj):
+        """Retorna info del módulo si existe"""
+        if obj.modulo:
+            return {
+                'id': obj.modulo.id,
+                'nombre': obj.modulo.nombre,
+                'tipo': obj.modulo.tipo
+            }
+        return None
+    
+    def get_file_size(self, obj):
+        """Retorna el tamaño del archivo original en bytes"""
+        if obj.archivo_original:
+            try:
+                return obj.archivo_original.size
+            except (OSError, AttributeError):
+                return None
+        return None
+
+    def get_status_display(self, obj):
+        mapping = {
+            'PENDIENTE': 'Pending',
+            'PROCESANDO': 'Processing',
+            'COMPLETADO': 'Completed',
+            'ERROR': 'Error'
+        }
+        return mapping.get(obj.estado_procesamiento, obj.estado_procesamiento)
+    
+    def get_thumbnail_url(self, obj):
+        """Retorna la URL completa del thumbnail si existe"""
+        if obj.thumbnail:
+            request = self.context.get('request')
+            if isinstance(obj.thumbnail, str):
+                thumbnail_path = f'/media/{obj.thumbnail}'
+                if request:
+                    return request.build_absolute_uri(thumbnail_path)
+                return thumbnail_path
+            if hasattr(obj.thumbnail, 'url'):
+                if request:
+                    return request.build_absolute_uri(obj.thumbnail.url)
+                return obj.thumbnail.url
+        return None
+    
+    def get_pizarra_thumbnail_url(self, obj):
+        """Retorna la URL completa del pizarra thumbnail si existe"""
+        if obj.pizarra_thumbnail:
+            request = self.context.get('request')
+            if isinstance(obj.pizarra_thumbnail, str):
+                pizarra_path = f'/media/{obj.pizarra_thumbnail}'
+                if request:
+                    return request.build_absolute_uri(pizarra_path)
+                return pizarra_path
+            if hasattr(obj.pizarra_thumbnail, 'url'):
+                if request:
+                    return request.build_absolute_uri(obj.pizarra_thumbnail.url)
+                return obj.pizarra_thumbnail.url
+        return None
+
+    def create(self, validated_data):
+        # Parseamos metadata si viene como string
+        metadata_str = validated_data.pop('metadata', '{}')
+        try:
+            if isinstance(metadata_str, dict):
+                metadata_data = metadata_str
+            else:
+                metadata_data = json.loads(metadata_str)
+        except (json.JSONDecodeError, TypeError):
+            metadata_data = {}
+        
+        validated_data['metadata'] = metadata_data
+        
+        # Save original filename
+        archivo = validated_data.get('archivo_original')
+        if archivo and hasattr(archivo, 'name'):
+            validated_data['nombre_original'] = archivo.name
+        
+        audio = Audio.objects.create(**validated_data)
+        return audio
+    
+    def update(self, instance, validated_data):
+        # If metadata comes as string, parse it
+        if 'metadata' in validated_data:
+            metadata_str = validated_data.pop('metadata')
+            try:
+                metadata_data = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
+                instance.metadata = metadata_data
+            except json.JSONDecodeError:
+                pass
+        
+        # Update other fields
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        
+        instance.save()
+        return instance
+    
+    def to_representation(self, instance):
+        """Override to ensure metadata is serialized correctly"""
+        representation = super().to_representation(instance)
+        if hasattr(instance, 'metadata') and instance.metadata:
+            representation['metadata'] = instance.metadata
         return representation
 
 class SharedLinkSerializer(serializers.ModelSerializer):

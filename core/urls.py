@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
-    RepositorioViewSet, AgenciaViewSet, BroadcastViewSet, 
+    RepositorioViewSet, AgenciaViewSet, BroadcastViewSet, AudioViewSet,
     UserViewSet, DirectorioViewSet, RepositorioPermisoViewSet, ModuloViewSet,
     PerfilViewSet, SistemaInformacionViewSet, current_user, shared_link_public, login_view, logout_view
 )
@@ -11,6 +11,7 @@ router = DefaultRouter()
 router.register(r'repositorios', RepositorioViewSet, basename='repositorio')
 router.register(r'agencias', AgenciaViewSet)
 router.register(r'broadcasts', BroadcastViewSet, basename='broadcast')
+router.register(r'audios', AudioViewSet, basename='audio')
 router.register(r'directorios', DirectorioViewSet, basename='directorio')
 router.register(r'users', UserViewSet)
 router.register(r'repositorio-permisos', RepositorioPermisoViewSet, basename='repositorio-permiso')

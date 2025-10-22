@@ -1,7 +1,7 @@
 # core/admin.py
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from .models import CustomUser, Repositorio, Agencia, Broadcast, SharedLink, RepositorioPermiso, Modulo, Perfil
+from .models import CustomUser, Repositorio, Agencia, Broadcast, Audio, SharedLink, RepositorioPermiso, Modulo, Perfil
 
 @admin.register(Perfil)
 class PerfilAdmin(admin.ModelAdmin):
@@ -56,6 +56,13 @@ class BroadcastAdmin(admin.ModelAdmin):
         return obj.pizarra.get('version', '') if obj.pizarra else ''
     p_version.short_description = 'Version'
 
+class AudioAdmin(admin.ModelAdmin):
+    """Admin para archivos de audio"""
+    list_display = ('nombre_original', 'repositorio', 'estado_procesamiento', 'fecha_subida')
+    list_filter = ('repositorio', 'estado_procesamiento', 'fecha_subida')
+    search_fields = ('nombre_original', 'metadata__titulo', 'metadata__artista')
+    readonly_fields = ('id', 'fecha_subida', 'ruta_mp3')
+
 class SharedLinkAdmin(admin.ModelAdmin):
     list_display = ('titulo', 'broadcast', 'activo', 'vistas', 'reproducciones', 'fecha_expiracion', 'creado_por', 'fecha_creacion')
     list_filter = ('activo', 'fecha_creacion', 'fecha_expiracion')
@@ -77,5 +84,6 @@ admin.site.register(Modulo, ModuloAdmin)
 admin.site.register(Repositorio, RepositorioAdmin)
 admin.site.register(Agencia)
 admin.site.register(Broadcast, BroadcastAdmin)
+admin.site.register(Audio, AudioAdmin)
 admin.site.register(SharedLink, SharedLinkAdmin)
 admin.site.register(RepositorioPermiso, RepositorioPermisoAdmin)

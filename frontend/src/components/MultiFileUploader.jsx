@@ -71,10 +71,40 @@ function MultiFileUploader(props) {
     return { allowed: true, reason: '' };
   };
 
+  // Get accept attribute based on module allowed formats
+  const getAcceptAttribute = () => {
+    if (!moduloInfo || !moduloInfo.formatos_permitidos || moduloInfo.formatos_permitidos.length === 0) {
+      return '*/*'; // Accept all files if no restrictions
+    }
+    
+    // Convert extensions to mime types or keep as extensions
+    return moduloInfo.formatos_permitidos.map(fmt => {
+      // If it's already a mime type, return as is
+      if (fmt.includes('/')) return fmt;
+      // Otherwise, treat as file extension
+      return fmt.startsWith('.') ? fmt : `.${fmt}`;
+    }).join(',');
+  };
+
+  // Get user-friendly file type label
+  const getFileTypeLabel = () => {
+    if (!moduloInfo || !moduloInfo.nombre) return 'files';
+    
+    const moduleName = (moduloInfo.nombre || moduloInfo.name || '').toLowerCase();
+    if (moduleName.includes('broadcast') || moduleName.includes('video')) return 'video files';
+    if (moduleName.includes('audio')) return 'audio files';
+    if (moduleName.includes('image')) return 'image files';
+    return 'files';
+  };
+
   const handleDrop = (e) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
+
+    console.log('🎯 handleDrop - moduloInfo:', moduloInfo);
+    console.log('🎯 handleDrop - formatos_permitidos:', moduloInfo?.formatos_permitidos);
+    console.log('🎯 handleDrop - accept attribute:', getAcceptAttribute());
 
     const droppedFiles = Array.from(e.dataTransfer.files);
     
@@ -180,13 +210,27 @@ function MultiFileUploader(props) {
     };
     formData.append('pizarra', JSON.stringify(pizarra));
 
+    // Metadata para audio: empty by default
+    const metadata = {
+      titulo: '',
+      artista: '',
+      album: ''
+    };
+    formData.append('metadata', JSON.stringify(metadata));
+
     try {
       // Actualizar estado a uploading
       setFiles(prev => prev.map(f => 
         f.id === fileData.id ? { ...f, status: 'uploading', progress: 0 } : f
       ));
 
-      await axios.post('http://localhost:8000/api/broadcasts/', formData, {
+      // Determinar el endpoint según el tipo de módulo
+      const isAudioModule = moduloInfo?.tipo === 'audio';
+      const uploadEndpoint = isAudioModule 
+        ? 'http://localhost:8000/api/audios/' 
+        : 'http://localhost:8000/api/broadcasts/';
+
+      await axios.post(uploadEndpoint, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         signal: abortControllerRef.current?.signal,
         onUploadProgress: (progressEvent) => {
@@ -360,7 +404,7 @@ function MultiFileUploader(props) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
             </svg>
             <p className="text-lg font-semibold text-gray-700 mb-2">
-              {isDragging ? 'Drop files here!' : 'Drag video files here'}
+              {isDragging ? 'Drop files here!' : `Drag ${getFileTypeLabel()} here`}
             </p>
             <p className="text-sm text-gray-500 mb-4">or</p>
             <button
@@ -374,7 +418,7 @@ function MultiFileUploader(props) {
               ref={fileInputRef}
               type="file"
               multiple
-              accept="video/*"
+              accept={getAcceptAttribute()}
               onChange={handleFileSelect}
               className="hidden"
             />

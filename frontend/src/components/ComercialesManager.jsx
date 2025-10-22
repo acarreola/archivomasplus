@@ -7,6 +7,9 @@ import ShareModal from './ShareModal';
 import CreateDirectoryModal from './CreateDirectoryModal';
 import ProcessingNotification from './ProcessingNotification';
 import EncodingModal from './EncodingModal_v2';
+import AudioEncodingModal from './AudioEncodingModal';
+import VideoPlayer from './VideoPlayer';
+import AudioWavePlayer from './AudioWavePlayer';
 import VersionHistoryModal from './VersionHistoryModal';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
@@ -27,12 +30,14 @@ function ComercialesManager() {
   const [showDirectoryForm, setShowDirectoryForm] = useState(false);
   const [editingDirectory, setEditingDirectory] = useState(null);
   // authError now comes from AuthContext via contextAuthError
-  const [viewMode, setViewMode] = useState('simple'); // 'simple', 'list', or 'grid'
+  const [viewMode, setViewMode] = useState('list'); // 'simple', 'list' (Full), or 'grid' (Thumbnails) - Iniciando en list (FULL)
   const [searchTerm, setSearchTerm] = useState('');
   const [currentUser, setCurrentUser] = useState(null);
   const [playingComercial, setPlayingComercial] = useState(null);
   const [sharingComercial, setSharingComercial] = useState(null);
   const [encodingComercial, setEncodingComercial] = useState(null);
+  const [encodingAudio, setEncodingAudio] = useState(null);
+  const [inlinePlayingId, setInlinePlayingId] = useState(null); // Para audio inline player en full view
   const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   
@@ -133,7 +138,13 @@ function ComercialesManager() {
     fetchingRef.current = true;
     setLoading(true);
   // console.info('📡 Fetching broadcasts...');
-    let url = 'http://localhost:8000/api/broadcasts/?';
+    
+    // Determinar el endpoint según el tipo de módulo
+    const currentModuloInfo = selectedModulo ? getSelectedRepoModulos().find(m => m.id === selectedModulo) : null;
+    const isAudioModule = currentModuloInfo?.tipo === 'audio';
+    const baseEndpoint = isAudioModule ? 'http://localhost:8000/api/audios/?' : 'http://localhost:8000/api/broadcasts/?';
+    
+    let url = baseEndpoint;
     const params = [];
     
     if (selectedRepo) {
@@ -148,7 +159,19 @@ function ComercialesManager() {
     
     axios.get(url)
       .then(res => {
-        setComerciales(res.data);
+        // Normalizar estructura para audio para que el UI siga funcionando
+        // igual que con broadcasts (mismos nombres de campos)
+        let items = res.data || [];
+        if (isAudioModule && Array.isArray(items)) {
+          items = items.map(it => ({
+            ...it,
+            // Mapear estado para que el UI lea el mismo campo
+            estado_transcodificacion: it.estado_procesamiento,
+            // Mapear ruta de reproducción al campo esperado por el reproductor
+            ruta_h264: it.ruta_mp3,
+          }));
+        }
+        setComerciales(items);
         setLoading(false);
         fetchingRef.current = false;
   // console.info('✅ Broadcasts loaded');
@@ -225,7 +248,12 @@ function ComercialesManager() {
     console.log('🗑️ Attempting to delete broadcast:', comercialId);
     
     if (window.confirm('Are you sure you want to delete this broadcast?')) {
-      const deleteUrl = `http://localhost:8000/api/broadcasts/${comercialId}/`;
+      // Determinar el endpoint según el tipo de módulo
+      const currentModuloInfo = selectedModulo ? getSelectedRepoModulos().find(m => m.id === selectedModulo) : null;
+      const isAudioModule = currentModuloInfo?.tipo === 'audio';
+      const baseEndpoint = isAudioModule ? 'http://localhost:8000/api/audios/' : 'http://localhost:8000/api/broadcasts/';
+      const deleteUrl = `${baseEndpoint}${comercialId}/`;
+      
       console.log('DELETE URL:', deleteUrl);
       
       axios.delete(deleteUrl)
@@ -254,7 +282,7 @@ function ComercialesManager() {
   };
 
   const handleDownload = async (comercial, type = 'h264') => {
-    // type puede ser 'h264', 'h265' o 'original'
+    // type puede ser 'h264', 'h265', 'mp3' o 'original'
     let url, filename;
     
     if (type === 'original') {
@@ -264,20 +292,32 @@ function ComercialesManager() {
         : `http://localhost:8000${comercial.archivo_original.startsWith('/') ? '' : '/'}${comercial.archivo_original}`;
       url = archivoUrl;
       
-      // Construir nombre: CLAVE_NOMBREORIGINAL.ext
+      // Construir nombre: CLAVE_NOMBREORIGINAL.mov (siempre .mov para originales)
       const clave = comercial.repositorio_clave || comercial.repositorio_folio || 'XXX';
       const nombreOriginal = comercial.nombre_original 
         ? comercial.nombre_original.replace(/\.[^/.]+$/, '') // Remover extensión del original
         : (comercial.pizarra?.producto || 'comercial');
-      const extension = comercial.archivo_original.substring(comercial.archivo_original.lastIndexOf('.'));
       
-      filename = `${clave}_${nombreOriginal}${extension}`;
+      filename = `${clave}_${nombreOriginal}.mov`;
     } else if (type === 'h264') {
       url = `http://localhost:8000/media/${comercial.ruta_h264}`;
-      filename = `${comercial.pizarra?.producto || 'comercial'}_h264.mp4`;
+      // Construir nombre: CLAVE_NOMBRE.mp4 (siempre .mp4 para H.264)
+      const clave = comercial.repositorio_clave || comercial.repositorio_folio || 'XXX';
+      const nombre = comercial.pizarra?.producto || 'comercial';
+      filename = `${clave}_${nombre}.mp4`;
     } else if (type === 'h265' || type === 'proxy') {
       url = `http://localhost:8000/media/${comercial.ruta_proxy}`;
       filename = `${comercial.pizarra?.producto || 'comercial'}_h265.mp4`;
+    } else if (type === 'mp3') {
+      const mp3Path = comercial.ruta_mp3 || (comercial.ruta_h264 && comercial.ruta_h264.endsWith('.mp3') ? comercial.ruta_h264 : null);
+      if (!mp3Path) {
+        alert('No hay archivo MP3 disponible');
+        return;
+      }
+      url = `http://localhost:8000/media/${mp3Path}`;
+      const clave = comercial.repositorio_clave || comercial.repositorio_folio || 'AUDIO';
+      const base = (comercial.pizarra?.producto || comercial.nombre_original || 'audio').toString().replace(/\.[^/.]+$/, '');
+      filename = `${clave}_${base}.mp3`;
     }
     
     try {
@@ -337,6 +377,30 @@ function ComercialesManager() {
     const value = bytes / Math.pow(k, i);
     const fixed = i === 0 ? 0 : 2;
     return `${value.toFixed(fixed)} ${sizes[i]}`;
+  };
+
+  // Get file extension from original filename (e.g., MP3, MP4, AIF)
+  const getFileExtension = (name) => {
+    if (!name || typeof name !== 'string') return '-';
+    const idx = name.lastIndexOf('.');
+    if (idx === -1 || idx === name.length - 1) return '-';
+    return name.substring(idx + 1).toUpperCase();
+  };
+
+  // Format seconds to M:SS (e.g., 159.2 -> 2:39)
+  const formatSecondsToMSS = (secs) => {
+    if (secs == null || isNaN(secs)) return '-';
+    const total = Math.max(0, Math.floor(secs));
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const getAudioDurationLabel = (item) => {
+    // Prefer metadata.duracion (seconds) for audio, fallback to pizarra.duracion (string)
+    const secs = item?.metadata?.duracion;
+    if (typeof secs === 'number') return formatSecondsToMSS(secs);
+    return item?.pizarra?.duracion || '-';
   };
 
   // Helper para obtener módulos del repositorio seleccionado
@@ -478,65 +542,94 @@ function ComercialesManager() {
         />
       )}
 
-      {/* Modal de Reproducción */}
+      {/* Modal de Reproducción (Video o Audio) */}
       {playingComercial && (
-        <div className="fixed inset-0 bg-black bg-opacity-90 flex justify-center items-center z-50 p-4">
-          <div className="w-full max-w-6xl">
-            <div className="bg-gradient-to-r from-blue-600 to-blue-800 text-white px-6 py-4 flex justify-between items-center rounded-t-lg">
-              <h2 className="text-xl font-semibold">
-                {playingComercial.pizarra?.producto || 'REPRODUCIENDO COMERCIAL'}
+        <div className="fixed inset-0 bg-black bg-opacity-95 flex justify-center items-center z-50 p-6">
+          <div className="w-full max-w-5xl">
+            {/* Header minimalista */}
+            <div className="bg-gradient-to-r from-gray-900 to-gray-800 text-white px-4 py-2 flex justify-between items-center rounded-t-lg border-b border-gray-700">
+              <h2 className="text-sm font-medium truncate">
+                {playingComercial.pizarra?.producto || playingComercial.nombre_original || 'Reproduciendo'}
               </h2>
               <button 
-                onClick={() => setPlayingComercial(null)}
-                className="text-white hover:text-gray-200 text-2xl font-bold"
+                onClick={() => setPlayingComercial(null)} 
+                className="text-gray-400 hover:text-white text-xl font-light ml-4 transition-colors"
               >
                 ×
               </button>
             </div>
-            <div className="bg-black">
-              <video 
-                className="w-full"
-                controls
-                autoPlay
-                src={`http://localhost:8000/media/${playingComercial.ruta_proxy}`}
-              >
-                Tu navegador no soporta el elemento de video.
-              </video>
-            </div>
-            <div className="bg-white px-6 py-4 rounded-b-lg">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="font-semibold">Cliente:</span> {playingComercial.pizarra?.cliente || '-'}
+
+            {/* Player */}
+            { (playingComercial.modulo_info?.tipo === 'audio' || playingComercial.ruta_mp3 || (playingComercial.ruta_h264 && playingComercial.ruta_h264.endsWith('.mp3')))
+              ? (
+                <div className="bg-gray-900 p-6">
+                  <AudioWavePlayer url={`http://localhost:8000/media/${playingComercial.ruta_h264 || playingComercial.ruta_mp3}`} />
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button onClick={() => setEditingComercial(playingComercial)} className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-semibold">Edit</button>
+                    <button onClick={() => setSharingComercial(playingComercial)} className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded font-semibold">Share</button>
+                    <button onClick={async () => {
+                      try {
+                        await axios.post(`http://localhost:8000/api/audios/${playingComercial.id}/reprocess/`);
+                        alert('✓ Encode encolado');
+                      } catch (e) { alert('⚠️ Error al iniciar encode'); }
+                    }} className="px-3 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded font-semibold">Encode</button>
+                    <button onClick={() => handleDownload(playingComercial, 'original')} className="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded font-semibold">Download Original</button>
+                    <button onClick={() => handleDelete(playingComercial.id)} className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded font-semibold">Delete</button>
+                  </div>
                 </div>
-                <div>
-                  <span className="font-semibold">Agencia:</span> {playingComercial.pizarra?.agencia || '-'}
+              ) : (
+                <div className="bg-black">
+                  <VideoPlayer
+                    src={`http://localhost:8000/media/${playingComercial.ruta_proxy}`}
+                    poster={playingComercial.thumbnail ? `http://localhost:8000/media/${playingComercial.thumbnail}` : undefined}
+                  />
                 </div>
-                <div>
-                  <span className="font-semibold">Producto:</span> {playingComercial.pizarra?.producto || '-'}
+              )
+            }
+
+            {/* Info compacta y elegante */}
+            <div className="bg-gradient-to-b from-gray-900 to-gray-950 px-5 py-3 rounded-b-lg border-t border-gray-800">
+              <div className="grid grid-cols-3 gap-x-6 gap-y-2 text-xs">
+                {playingComercial.pizarra?.cliente && (
+                  <div className="flex flex-col">
+                    <span className="text-gray-500 uppercase text-[10px] font-medium tracking-wide mb-0.5">Cliente</span>
+                    <span className="text-gray-200 font-medium truncate">{playingComercial.pizarra.cliente}</span>
+                  </div>
+                )}
+                {playingComercial.pizarra?.agencia && (
+                  <div className="flex flex-col">
+                    <span className="text-gray-500 uppercase text-[10px] font-medium tracking-wide mb-0.5">Agencia</span>
+                    <span className="text-gray-200 font-medium truncate">{playingComercial.pizarra.agencia}</span>
+                  </div>
+                )}
+                {playingComercial.pizarra?.producto && (
+                  <div className="flex flex-col">
+                    <span className="text-gray-500 uppercase text-[10px] font-medium tracking-wide mb-0.5">Producto</span>
+                    <span className="text-gray-200 font-medium truncate">{playingComercial.pizarra.producto}</span>
+                  </div>
+                )}
+                {playingComercial.pizarra?.version && (
+                  <div className="flex flex-col">
+                    <span className="text-gray-500 uppercase text-[10px] font-medium tracking-wide mb-0.5">Versión</span>
+                    <span className="text-gray-200 font-medium truncate">{playingComercial.pizarra.version}</span>
+                  </div>
+                )}
+                {playingComercial.pizarra?.duracion && (
+                  <div className="flex flex-col">
+                    <span className="text-gray-500 uppercase text-[10px] font-medium tracking-wide mb-0.5">Duración</span>
+                    <span className="text-gray-200 font-medium">{playingComercial.pizarra.duracion}</span>
+                  </div>
+                )}
+                <div className="flex flex-col">
+                  <span className="text-gray-500 uppercase text-[10px] font-medium tracking-wide mb-0.5">Fecha</span>
+                  <span className="text-gray-200 font-medium">
+                    {new Date(playingComercial.fecha_subida).toLocaleDateString('es-MX', { 
+                      day: 'numeric', 
+                      month: 'short', 
+                      year: 'numeric' 
+                    })}
+                  </span>
                 </div>
-                <div>
-                  <span className="font-semibold">Versión:</span> {playingComercial.pizarra?.version || '-'}
-                </div>
-                <div>
-                  <span className="font-semibold">Duración:</span> {playingComercial.pizarra?.duracion || '-'}
-                </div>
-                <div>
-                  <span className="font-semibold">Fecha:</span> {new Date(playingComercial.fecha_subida).toLocaleDateString('es-MX')}
-                </div>
-              </div>
-              <div className="mt-4 flex space-x-2">
-                <button
-                  onClick={() => handleDownload(playingComercial, 'proxy')}
-                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-semibold"
-                >
-                  Descargar Proxy (H.264)
-                </button>
-                <button
-                  onClick={() => handleDownload(playingComercial, 'original')}
-                  className="flex-1 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded font-semibold"
-                >
-                  Descargar Original
-                </button>
               </div>
             </div>
           </div>
@@ -1002,15 +1095,16 @@ function ComercialesManager() {
               </div>
             </div>
           ) : viewMode === 'simple' ? (
-            /* View 1: SIMPLE - Thumbnail, original name, key, file size, upload date, status */
+            /* View 1: SIMPLE - Thumbnail, original name, key, file size, format, upload date, status */
             <div className="p-6 overflow-x-auto">
               <table className="w-full table-fixed">
                 <thead className="bg-gray-100 border-b-2 border-gray-300">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">THUMBNAIL</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32"></th>
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-64">ORIGINAL NAME</th>
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">KEY</th>
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-28">FILE SIZE</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-24">FORMAT</th>
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-36">UPLOAD DATE</th>
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-40">STATUS</th>
                     <th className="px-4 py-3 text-right text-xs font-bold text-gray-600 uppercase w-24">ACTIONS</th>
@@ -1024,7 +1118,7 @@ function ComercialesManager() {
                         key={`dir-${item.data.id}`} 
                         className="hover:bg-purple-50 transition-colors bg-purple-25"
                       >
-                        <td className="px-4 py-3" colSpan="6">
+                        <td className="px-4 py-3" colSpan="7">
                           <div 
                             className="flex items-center space-x-3 cursor-pointer"
                             onClick={() => {
@@ -1084,27 +1178,57 @@ function ComercialesManager() {
                     ) : (
                       // Render simple Broadcast row
                       <tr key={`com-${item.data.id}`} className="hover:bg-blue-50 transition-colors">
-                        {/* Thumbnail */}
+                        {/* Thumbnail (Simple view) */}
                         <td className="px-4 py-3">
-                          <div className="relative w-24 h-14 bg-gray-900 rounded overflow-hidden shadow-sm">
-                            {item.data.thumbnail_url ? (
-                              <img 
-                                src={item.data.thumbnail_url} 
-                                alt="Thumbnail" 
-                                className="w-full h-full object-cover"
-                                onError={(e) => {
-                                  e.target.style.display = 'none';
-                                  e.target.parentNode.querySelector('svg').style.display = 'block';
-                                }}
-                              />
-                            ) : null}
-                            <svg 
-                              className={`absolute inset-0 m-auto w-8 h-8 text-gray-600 ${item.data.thumbnail_url ? 'hidden' : 'block'}`}
-                              fill="currentColor" 
-                              viewBox="0 0 24 24"
-                            >
-                              <path d="M9.4 10.5l4.77-8.26C13.47 2.09 12.75 2 12 2c-2.4 0-4.6.85-6.32 2.25l3.66 6.35.06-.1zM21.54 9c-.92-2.92-3.15-5.26-6-6.34L11.88 9h9.66zm.26 1h-7.49l.29.5 4.76 8.25C21 16.97 22 14.61 22 12c0-.69-.07-1.35-.2-2zM8.54 12l-3.9-6.75C3.01 7.03 2 9.39 2 12c0 .69.07 1.35.2 2h7.49l-1.15-2zm-6.08 3c.92 2.92 3.15 5.26 6 6.34L12.12 15H2.46zm11.27 0l-3.9 6.76c.7.15 1.42.24 2.17.24 2.4 0 4.6-.85 6.32-2.25l-3.66-6.35-.93 1.6z"/>
-                            </svg>
+                          <div className="relative w-24 h-14 bg-transparent rounded overflow-hidden shadow-sm flex items-center justify-center border border-gray-200">
+                            {(() => {
+                              const currentModulo = selectedModulo ? getSelectedRepoModulos().find(m => m.id === selectedModulo) : null;
+                              const isAudioModule = currentModulo?.tipo === 'audio';
+                              if (isAudioModule) {
+                                return (
+                                  <img
+                                    src="/icons/audio.svg"
+                                    alt="Audio"
+                                    className="w-12 h-12 object-contain opacity-100"
+                                    onError={(e) => {
+                                      // Intento de fallback a backend
+                                      if (!e.currentTarget.dataset.fallbackTried) {
+                                        e.currentTarget.dataset.fallbackTried = '1';
+                                        e.currentTarget.src = 'http://localhost:8000/icons/audio.svg';
+                                        return;
+                                      }
+                                      // Fallback final: ocultar imagen y mostrar SVG de respaldo
+                                      e.currentTarget.style.display = 'none';
+                                      const fallback = e.currentTarget.nextElementSibling;
+                                      if (fallback) fallback.style.display = 'block';
+                                    }}
+                                  />
+                                );
+                              }
+                              return (
+                                <>
+                                  {item.data.thumbnail_url ? (
+                                    <img 
+                                      src={item.data.thumbnail_url} 
+                                      alt="Thumbnail" 
+                                      className="w-full h-full object-cover"
+                                      onError={(e) => {
+                                        e.currentTarget.style.display = 'none';
+                                        const fallback = e.currentTarget.nextElementSibling;
+                                        if (fallback) fallback.style.display = 'block';
+                                      }}
+                                    />
+                                  ) : null}
+                                  <svg 
+                                    className={`absolute inset-0 m-auto w-8 h-8 text-gray-600 ${item.data.thumbnail_url ? 'hidden' : 'block'}`}
+                                    fill="currentColor" 
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path d="M9.4 10.5l4.77-8.26C13.47 2.09 12.75 2 12 2c-2.4 0-4.6.85-6.32 2.25l3.66 6.35.06-.1zM21.54 9c-.92-2.92-3.15-5.26-6-6.34L11.88 9h9.66zm.26 1h-7.49l.29.5 4.76 8.25C21 16.97 22 14.61 22 12c0-.69-.07-1.35-.2-2zM8.54 12l-3.9-6.75C3.01 7.03 2 9.39 2 12c0 .69.07 1.35.2 2h7.49l-1.15-2zm-6.08 3c.92 2.92 3.15 5.26 6 6.34L12.12 15H2.46zm11.27 0l-3.9 6.76c.7.15 1.42.24 2.17.24 2.4 0 4.6-.85 6.32-2.25l-3.66-6.35-.93 1.6z"/>
+                                  </svg>
+                                </>
+                              );
+                            })()}
                           </div>
                         </td>
                         
@@ -1117,16 +1241,21 @@ function ComercialesManager() {
                           </div>
                         </td>
                         
-                        {/* Clave (UUID corto) */}
+                        {/* Key (Repositorio Clave) */}
                         <td className="px-4 py-3">
                           <code className="text-xs bg-gray-100 px-2 py-1 rounded font-mono text-gray-700">
-                            {item.data.id.split('-')[0]}
+                            {item.data.repositorio_clave || '-'}
                           </code>
                         </td>
                         
                         {/* File Size */}
                         <td className="px-4 py-3 text-sm text-gray-700">
                           {formatFileSize(item.data.file_size)}
+                        </td>
+                        
+                        {/* Format */}
+                        <td className="px-4 py-3 text-sm text-gray-700">
+                          {getFileExtension(item.data.nombre_original)}
                         </td>
                         
                         {/* Fecha de Carga */}
@@ -1203,145 +1332,277 @@ function ComercialesManager() {
               </table>
             </div>
           ) : viewMode === 'list' ? (
-            /* Vista 2: LISTA COMPLETA - Todos los campos */
-            <div className="p-6 overflow-x-auto">
-              <table className="w-full table-fixed">
-                <thead className="bg-gray-100 border-b-2 border-gray-300">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">THUMBNAIL</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-40">CLIENT</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-40">AGENCY</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-48">PRODUCT</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">VERSION</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-24">TIME</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">TYPE</th>
-                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-36">DATE</th>
-                    <th className="px-4 py-3 text-right text-xs font-bold text-gray-600 uppercase w-80">ACTIONS</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {displayItems.map((item, index) => 
-                    item.type === 'directory' ? (
-                      // Renderizar Directorio como fila
-                      <tr 
-                        key={`dir-${item.data.id}`} 
-                        className="hover:bg-purple-50 transition-colors bg-purple-25"
-                      >
-                        <td className="px-4 py-3" colSpan="8">
-                          <div 
-                            className="flex items-center space-x-3 cursor-pointer"
-                            onClick={() => {
-                              setSelectedDirectory(item.data.id);
-                              setCurrentPage(1);
-                            }}
-                          >
-                            {/* Icono de carpeta */}
-                            <svg className="w-8 h-8 text-blue-500" fill="currentColor" viewBox="0 0 24 24">
-                              <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
-                            </svg>
-                            {/* Nombre del directorio */}
+            /* Vista 2: LISTA COMPLETA */
+            <div className="p-6">
+              {/* Si el módulo es audio, render especial tipo waveform list */}
+              {(() => {
+                const currentModulo = selectedModulo ? getSelectedRepoModulos().find(m => m.id === selectedModulo) : null;
+                if (currentModulo?.tipo === 'audio') {
+                  return (
+                    <div className="space-y-6">
+                      {displayItems.map((item) => item.type === 'directory' ? (
+                        <div key={`dir-${item.data.id}`} className="flex items-center justify-between bg-white border border-gray-200 rounded-lg p-4 hover:shadow-sm">
+                          <div className="flex items-center space-x-3 cursor-pointer" onClick={() => { setSelectedDirectory(item.data.id); setCurrentPage(1); }}>
+                            <svg className="w-7 h-7 text-blue-500" fill="currentColor" viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
                             <div>
-                              <span className="text-base font-semibold text-gray-900">{item.data.nombre}</span>
-                              <span className="ml-2 text-sm text-gray-500">({item.data.comerciales_count || 0} {t('repository.count') || 'archivos'})</span>
+                              <div className="text-base font-semibold text-gray-900">{item.data.nombre}</div>
+                              <div className="text-xs text-gray-500">{item.data.comerciales_count || 0} files</div>
                             </div>
                           </div>
-                        </td>
-                        <td className="px-4 py-3">
                           <div className="flex items-center space-x-2">
-                            {/* Botón Editar */}
-                            <div className="relative group">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleEditDirectory(item.data);
-                                }}
-                                className="p-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
-                              >
-                                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                                  <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h357l-80 80H200v560h560v-278l80-80v358q0 33-23.5 56.5T760-120H200Zm280-360ZM360-360v-170l367-367q12-12 27-18t30-6q16 0 30.5 6t26.5 18l56 57q11 12 17 26.5t6 29.5q0 15-5.5 29.5T897-728L530-360H360Zm481-424-56-56 56 56ZM440-440h56l232-232-28-28-29-28-231 231v57Zm260-260-29-28 29 28 28 28-28-28Z"/>
-                                </svg>
-                              </button>
-                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
-                                Edit Directory
-                              </div>
-                            </div>
-                            {/* Botón Eliminar */}
-                            <div className="relative group">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDeleteDirectory(item.data.id);
-                                }}
-                                className="p-1.5 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
-                              >
-                                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                                  <path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/>
-                                </svg>
-                              </button>
-                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
-                                Delete Directory
-                              </div>
-                            </div>
+                            <button onClick={() => handleEditDirectory(item.data)} className="px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600">Edit</button>
+                            <button onClick={() => handleDeleteDirectory(item.data.id)} className="px-2 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600">Delete</button>
                           </div>
-                        </td>
-                      </tr>
-                    ) : (
-                      // Renderizar Comercial como fila normal
-                      <tr key={`com-${item.data.id}`} className="hover:bg-blue-50 transition-colors">
-                        {/* Thumbnail */}
-                        <td className="px-4 py-3">
-                        <div className="relative w-24 h-14 bg-gray-900 rounded overflow-hidden group cursor-pointer" onClick={() => item.data.estado_transcodificacion === 'COMPLETADO' && handlePlay(item.data)}>
-                          {item.data.thumbnail_url ? (
-                            <img 
-                              src={item.data.thumbnail_url}
-                              alt={item.data.pizarra?.producto || 'Thumbnail'}
-                              className="w-full h-full object-cover"
-                              onError={(e) => {
-                                e.target.style.display = 'none';
-                                e.target.nextSibling.style.display = 'flex';
-                              }}
-                            />
-                          ) : null}
-                          <div className="absolute inset-0 flex items-center justify-center bg-gray-800 text-white" style={{ display: item.data.thumbnail_url ? 'none' : 'flex' }}>
-                            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                            </svg>
-                          </div>
-                          {item.data.estado_transcodificacion === 'COMPLETADO' && (
-                            <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition-all flex items-center justify-center">
-                              <svg className="w-10 h-10 text-white opacity-0 group-hover:opacity-100 transition-opacity" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M8 5v14l11-7z"/>
-                              </svg>
-                            </div>
-                          )}
                         </div>
-                      </td>
-                        <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                          {item.data.pizarra?.cliente || item.data.repositorio_nombre}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-700">
-                          {item.data.pizarra?.agencia || '-'}
-                        </td>
-                        <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                          {item.data.pizarra?.producto || 'N/A'}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-700">
-                          {item.data.pizarra?.version || '-'}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-700">
-                          {item.data.pizarra?.duracion || '-'}
-                        </td>
-                        {/* Type (from CSV vtype mapping). Status is not shown in Full view */}
-                        <td className="px-4 py-3 text-sm">
-                          <span className="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">
-                            {getTypeLabel(item.data.pizarra)}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-600">
-                          {new Date(item.data.fecha_subida).toLocaleDateString('es-MX')}
-                        </td>
-                        <td className="px-4 py-3 text-sm">
-                          <div className="flex justify-end space-x-1">
+                      ) : (
+                        <div key={`audio-${item.data.id}`} className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                          <div className="flex items-start gap-4">
+                            {/* Play button */}
+                            <button 
+                              onClick={() => {
+                                if (inlinePlayingId === item.data.id) {
+                                  setInlinePlayingId(null); // Pause/close
+                                } else {
+                                  setInlinePlayingId(item.data.id); // Play inline
+                                }
+                              }}
+                              className="flex-shrink-0 w-12 h-12 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-50"
+                            >
+                              {inlinePlayingId === item.data.id ? (
+                                <svg xmlns="http://www.w3.org/2000/svg" height="22" viewBox="0 -960 960 960" width="22" fill="currentColor"><path d="M520-200v-560h240v560H520Zm-320 0v-560h240v560H200Z"/></svg>
+                              ) : (
+                                <svg xmlns="http://www.w3.org/2000/svg" height="22" viewBox="0 -960 960 960" width="22" fill="currentColor"><path d="M320-200v-560l440 280-440 280Z"/></svg>
+                              )}
+                            </button>
+
+                            {/* File info and waveform */}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between">
+                                <div className="truncate font-semibold text-gray-900">
+                                  {(item.data.nombre_original || item.data.pizarra?.producto || 'AUDIO').toUpperCase()}
+                                </div>
+                                <div className="ml-4 text-xs text-gray-500 whitespace-nowrap">{getAudioDurationLabel(item.data)}</div>
+                              </div>
+                              <div className="mt-1 text-xs text-gray-600">
+                                {formatFileSize(item.data.file_size)}<span className="mx-2">•</span>{getFileExtension(item.data.nombre_original)}
+                              </div>
+                              
+                              {/* Inline player or waveform placeholder */}
+                              {inlinePlayingId === item.data.id ? (
+                                <div className="mt-3">
+                                  <AudioWavePlayer 
+                                    url={`http://localhost:8000/media/${item.data.ruta_h264 || item.data.ruta_mp3}`}
+                                    height={28}
+                                  />
+                                </div>
+                              ) : (
+                                <div className="mt-3 h-7 rounded bg-gray-100 relative overflow-hidden cursor-pointer" onClick={() => setInlinePlayingId(item.data.id)}>
+                                  <div className="absolute inset-0 opacity-80" style={{ backgroundImage: 'repeating-linear-gradient(90deg, #9ca3af 0, #9ca3af 2px, transparent 2px, transparent 6px)' }}></div>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Actions (audio): Edit, Share, Encode, Download MP3, Download Original, Delete */}
+                            <div className="flex-shrink-0 flex flex-col items-end gap-2">
+                              <div className="flex space-x-1">
+                                {/* Edit (rename-only for audio) */}
+                                <div className="relative group">
+                                  <button onClick={() => setEditingComercial(item.data)} className="p-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors">
+                                    <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor"><path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h357l-80 80H200v560h560v-278l80-80v358q0 33-23.5 56.5T760-120H200Zm280-360ZM360-360v-170l367-367q12-12 27-18t30-6q16 0 30.5 6t26.5 18l56 57q11 12 17 26.5t6 29.5q0 15-5.5 29.5T897-728L530-360H360Zm481-424-56-56 56 56ZM440-440h56l232-232-28-28-29-28-231 231v57Zm260-260-29-28 29 28 28 28-28-28Z"/></svg>
+                                  </button>
+                                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">Edit</div>
+                                </div>
+
+                                {/* Share */}
+                                <div className="relative group">
+                                  <button onClick={() => setSharingComercial(item.data)} className="p-1.5 bg-indigo-500 text-white rounded hover:bg-indigo-600 transition-colors">
+                                    <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor"><path d="M720-80q-50 0-85-35t-35-85q0-7 1-14.5t3-13.5L322-392q-17 15-38 23.5t-44 8.5q-50 0-85-35t-35-85q0-50 35-85t85-35q23 0 44 8.5t38 23.5l282-164q-2-6-3-13.5t-1-14.5q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-23 0-44-8.5T638-672L356-508q2 6 3 13.5t1 14.5q0 7-1 14.5t-3 13.5l282 164q17-15 38-23.5t44-8.5q50 0 85 35t35 85q0 50-35 85t-85 35Z"/></svg>
+                                  </button>
+                                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">Share</div>
+                                </div>
+
+                                {/* Encode (open Audio Encoding Modal) */}
+                                <div className="relative group">
+                                  <button onClick={() => setEncodingAudio(item.data)} className="p-1.5 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition-colors">
+                                    <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor"><path d="M480-800q-83 0-156 31.5T197-682q-55 55-86.5 128T79-398h86q0-130 92.5-222.5T480-713v-87Zm0 640q83 0 156-31.5T763-278q55-55 86.5-128T881-562h-86q0 130-92.5 222.5T480-247v87Zm0-480q-66 0-113 47t-47 113q0 66 47 113t113 47q66 0 113-47t47-113q0-66-47-113t-113-47Z"/></svg>
+                                  </button>
+                                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">Encode</div>
+                                </div>
+
+                                {/* Download MP3 if available */}
+                                {(item.data.ruta_mp3 || (item.data.ruta_h264 && item.data.ruta_h264.endsWith('.mp3'))) && (
+                                  <div className="relative group">
+                                    <button onClick={() => handleDownload(item.data, 'mp3')} className="p-1.5 bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors">
+                                      <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor"><path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/></svg>
+                                    </button>
+                                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">Download MP3</div>
+                                  </div>
+                                )}
+
+                                {/* Download Original */}
+                                <div className="relative group">
+                                  <button onClick={() => handleDownload(item.data, 'original')} className="p-1.5 bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors">
+                                    <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor"><path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/></svg>
+                                  </button>
+                                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">Download Original</div>
+                                </div>
+
+                                {/* Delete */}
+                                <div className="relative group">
+                                  <button onClick={() => handleDelete(item.data.id)} className="p-1.5 bg-red-500 text-white rounded hover:bg-red-600 transition-colors">
+                                    <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor"><path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/></svg>
+                                  </button>
+                                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">Delete</div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                }
+
+                // Default (no-audio): mantener tabla previa
+                return (
+                  <div className="overflow-x-auto">
+                    <table className="w-full table-fixed">
+                      <thead className="bg-gray-100 border-b-2 border-gray-300">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">THUMBNAIL</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-40">CLIENT</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-40">AGENCY</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-48">PRODUCT</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">VERSION</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-24">TIME</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">TYPE</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-36">DATE</th>
+                          <th className="px-4 py-3 text-right text-xs font-bold text-gray-600 uppercase w-80">ACTIONS</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {displayItems.map((item, index) => 
+                          item.type === 'directory' ? (
+                            // Renderizar Directorio como fila
+                            <tr 
+                              key={`dir-${item.data.id}`} 
+                              className="hover:bg-purple-50 transition-colors bg-purple-25"
+                            >
+                              <td className="px-4 py-3" colSpan="8">
+                                <div 
+                                  className="flex items-center space-x-3 cursor-pointer"
+                                  onClick={() => {
+                                    setSelectedDirectory(item.data.id);
+                                    setCurrentPage(1);
+                                  }}
+                                >
+                                  {/* Icono de carpeta */}
+                                  <svg className="w-8 h-8 text-blue-500" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+                                  </svg>
+                                  {/* Nombre del directorio */}
+                                  <div>
+                                    <span className="text-base font-semibold text-gray-900">{item.data.nombre}</span>
+                                    <span className="ml-2 text-sm text-gray-500">({item.data.comerciales_count || 0} {t('repository.count') || 'archivos'})</span>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center space-x-2">
+                                  {/* Botón Editar */}
+                                  <div className="relative group">
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleEditDirectory(item.data);
+                                      }}
+                                      className="p-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                        <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h357l-80 80H200v560h560v-278l80-80v358q0 33-23.5 56.5T760-120H200Zm280-360ZM360-360v-170l367-367q12-12 27-18t30-6q16 0 30.5 6t26.5 18l56 57q11 12 17 26.5t6 29.5q0 15-5.5 29.5T897-728L530-360H360Zm481-424-56-56 56 56ZM440-440h56l232-232-28-28-29-28-231 231v57Zm260-260-29-28 29 28 28 28-28-28Z"/>
+                                      </svg>
+                                    </button>
+                                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                      Edit Directory
+                                    </div>
+                                  </div>
+                                  {/* Botón Eliminar */}
+                                  <div className="relative group">
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDeleteDirectory(item.data.id);
+                                      }}
+                                      className="p-1.5 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                        <path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/>
+                                      </svg>
+                                    </button>
+                                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                      Delete Directory
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          ) : (
+                            // Renderizar Comercial como fila normal
+                            <tr key={`com-${item.data.id}`} className="hover:bg-blue-50 transition-colors">
+                              {/* Thumbnail */}
+                              <td className="px-4 py-3">
+                              <div className="relative w-24 h-14 bg-gray-900 rounded overflow-hidden group cursor-pointer" onClick={() => item.data.estado_transcodificacion === 'COMPLETADO' && handlePlay(item.data)}>
+                                {item.data.thumbnail_url ? (
+                                  <img 
+                                    src={item.data.thumbnail_url}
+                                    alt={item.data.pizarra?.producto || 'Thumbnail'}
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => {
+                                      e.target.style.display = 'none';
+                                      e.target.nextSibling.style.display = 'flex';
+                                    }}
+                                  />
+                                ) : null}
+                                <div className="absolute inset-0 flex items-center justify-center bg-gray-800 text-white" style={{ display: item.data.thumbnail_url ? 'none' : 'flex' }}>
+                                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                  </svg>
+                                </div>
+                                {item.data.estado_transcodificacion === 'COMPLETADO' && (
+                                  <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition-all flex items-center justify-center">
+                                    <svg className="w-10 h-10 text-white opacity-0 group-hover:opacity-100 transition-opacity" fill="currentColor" viewBox="0 0 24 24">
+                                      <path d="M8 5v14l11-7z"/>
+                                    </svg>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                              <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                                {item.data.pizarra?.cliente || item.data.repositorio_nombre}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-700">
+                                {item.data.pizarra?.agencia || '-'}
+                              </td>
+                              <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                                {item.data.pizarra?.producto || 'N/A'}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-700">
+                                {item.data.pizarra?.version || '-'}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-700">
+                                {item.data.pizarra?.duracion || '-'}
+                              </td>
+                              {/* Type (from CSV vtype mapping). Status is not shown in Full view */}
+                              <td className="px-4 py-3 text-sm">
+                                <span className="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">
+                                  {getTypeLabel(item.data.pizarra)}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-600">
+                                {new Date(item.data.fecha_subida).toLocaleDateString('es-MX')}
+                              </td>
+                              <td className="px-4 py-3 text-sm">
+                                <div className="flex justify-end space-x-1">
                             <div className="relative group">
                               <button
                                 onClick={() => setEditingComercial(item.data)}
@@ -1385,20 +1646,53 @@ function ComercialesManager() {
                             </div>
                             {item.data.estado_transcodificacion === 'COMPLETADO' && (
                               <div className="relative group">
-                                <button 
-                                  onClick={() => setEncodingComercial(item.data)}
-                                  className="p-1.5 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition-colors"
-                                >
-                                  <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                                    <path d="M512-120v-71q90-13 149-85.5T720-440q0-100-70-170t-170-70q-100 0-170 70t-70 170q0 91 59 163.5T448-191v71q-123-14-203.5-105.5T164-440q0-134 93-227t227-93q134 0 227 93t93 227q0 123-80.5 214.5T512-120Zm-32-168v-304q0-8.5 5.75-14.25T500-612q8.5 0 14.25 5.75T520-592v304q0 8.5-5.75 14.25T500-268q-8.5 0-14.25-5.75T480-288Z"/>
-                                  </svg>
-                                </button>
-                                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
-                                  Encode
-                                </div>
+                                {item.data.modulo_info?.tipo === 'audio' ? (
+                                  <>
+                                    <button 
+                                      onClick={async () => {
+                                        try {
+                                          await axios.post(`http://localhost:8000/api/audios/${item.data.id}/reprocess/`);
+                                          alert('✓ Reproceso de audio encolado');
+                                        } catch (e) { alert('⚠️ Error al iniciar reproceso'); }
+                                      }}
+                                      className="p-1.5 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition-colors"
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                        <path d="M480-800q-83 0-156 31.5T197-682q-55 55-86.5 128T79-398h86q0-130 92.5-222.5T480-713v-87Zm0 640q83 0 156-31.5T763-278q55-55 86.5-128T881-562h-86q0 130-92.5 222.5T480-247v87Zm0-480q-66 0-113 47t-47 113q0 66 47 113t113 47q66 0 113-47t47-113q0-66-47-113t-113-47Z"/>
+                                      </svg>
+                                    </button>
+                                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                      Reprocess MP3
+                                    </div>
+                                  </>
+                                ) : (
+                                  <>
+                                    {/* Botón Reprocess para videos (transcodificación estándar) */}
+                                    <button 
+                                      onClick={async () => {
+                                        try {
+                                          await axios.post(`http://localhost:8000/api/broadcasts/${item.data.id}/reprocess/`);
+                                          alert('✓ Transcodificación encolada');
+                                          fetchComerciales();
+                                        } catch (e) { 
+                                          alert('⚠️ Error al iniciar transcodificación'); 
+                                          console.error(e);
+                                        }
+                                      }}
+                                      className="p-1.5 bg-green-500 text-white rounded hover:bg-green-600 transition-colors"
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                        <path d="M480-800q-83 0-156 31.5T197-682q-55 55-86.5 128T79-398h86q0-130 92.5-222.5T480-713v-87Zm0 640q83 0 156-31.5T763-278q55-55 86.5-128T881-562h-86q0 130-92.5 222.5T480-247v87Zm0-480q-66 0-113 47t-47 113q0 66 47 113t113 47q66 0 113-47t47-113q0-66-47-113t-113-47Z"/>
+                                      </svg>
+                                    </button>
+                                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                      Transcode
+                                    </div>
+                                  </>
+                                )}
                               </div>
                             )}
-                            {item.data.estado_transcodificacion === 'COMPLETADO' && item.data.ruta_h264 && (
+                            {item.data.estado_transcodificacion === 'COMPLETADO' && item.data.modulo_info?.tipo !== 'audio' && item.data.ruta_h264 && (
                               <div className="relative group">
                                 <button 
                                   onClick={() => handleDownload(item.data, 'h264')}
@@ -1410,6 +1704,21 @@ function ComercialesManager() {
                                 </button>
                                 <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
                                   Download H.264
+                                </div>
+                              </div>
+                            )}
+                            {item.data.estado_transcodificacion === 'COMPLETADO' && item.data.modulo_info?.tipo === 'audio' && (item.data.ruta_mp3 || (item.data.ruta_h264 && item.data.ruta_h264.endsWith('.mp3'))) && (
+                              <div className="relative group">
+                                <button 
+                                  onClick={() => handleDownload(item.data, 'mp3')}
+                                  className="p-1.5 bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors"
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                    <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
+                                  </svg>
+                                </button>
+                                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                  Download MP3
                                 </div>
                               </div>
                             )}
@@ -1444,8 +1753,11 @@ function ComercialesManager() {
                       </tr>
                     )
                   )}
-                </tbody>
-              </table>
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
             </div>
           ) : (
             // Vista Grid con Thumbnails
@@ -1563,20 +1875,53 @@ function ComercialesManager() {
                           </div>
                           {comercial.estado_transcodificacion === 'COMPLETADO' && (
                             <div className="relative group">
-                              <button 
-                                onClick={() => setEncodingComercial(comercial)}
-                                className="p-1 text-yellow-600 hover:bg-yellow-50 rounded transition-colors" 
-                              >
-                                <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
-                                  <path d="M512-120v-71q90-13 149-85.5T720-440q0-100-70-170t-170-70q-100 0-170 70t-70 170q0 91 59 163.5T448-191v71q-123-14-203.5-105.5T164-440q0-134 93-227t227-93q134 0 227 93t93 227q0 123-80.5 214.5T512-120Zm-32-168v-304q0-8.5 5.75-14.25T500-612q8.5 0 14.25 5.75T520-592v304q0 8.5-5.75 14.25T500-268q-8.5 0-14.25-5.75T480-288Z"/>
-                                </svg>
-                              </button>
-                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
-                                Encode
-                              </div>
+                              {comercial.modulo_info?.tipo === 'audio' ? (
+                                <>
+                                  <button 
+                                    onClick={async () => {
+                                      try {
+                                        await axios.post(`http://localhost:8000/api/audios/${comercial.id}/reprocess/`);
+                                        alert('✓ Reproceso de audio encolado');
+                                      } catch (e) { alert('⚠️ Error al iniciar reproceso'); }
+                                    }}
+                                    className="p-1 text-yellow-600 hover:bg-yellow-50 rounded transition-colors" 
+                                  >
+                                    <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
+                                      <path d="M480-800q-83 0-156 31.5T197-682q-55 55-86.5 128T79-398h86q0-130 92.5-222.5T480-713v-87Zm0 640q83 0 156-31.5T763-278q55-55 86.5-128T881-562h-86q0 130-92.5 222.5T480-247v87Zm0-480q-66 0-113 47t-47 113q0 66 47 113t113 47q66 0 113-47t47-113q0-66-47-113t-113-47Z"/>
+                                    </svg>
+                                  </button>
+                                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                    Reprocess MP3
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  {/* Botón Transcode para videos (transcodificación estándar) */}
+                                  <button 
+                                    onClick={async () => {
+                                      try {
+                                        await axios.post(`http://localhost:8000/api/broadcasts/${comercial.id}/reprocess/`);
+                                        alert('✓ Transcodificación encolada');
+                                        fetchComerciales();
+                                      } catch (e) { 
+                                        alert('⚠️ Error al iniciar transcodificación'); 
+                                        console.error(e);
+                                      }
+                                    }}
+                                    className="p-1 text-green-600 hover:bg-green-50 rounded transition-colors" 
+                                  >
+                                    <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
+                                      <path d="M480-800q-83 0-156 31.5T197-682q-55 55-86.5 128T79-398h86q0-130 92.5-222.5T480-713v-87Zm0 640q83 0 156-31.5T763-278q55-55 86.5-128T881-562h-86q0 130-92.5 222.5T480-247v87Zm0-480q-66 0-113 47t-47 113q0 66 47 113t113 47q66 0 113-47t47-113q0-66-47-113t-113-47Z"/>
+                                    </svg>
+                                  </button>
+                                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                    Transcode
+                                  </div>
+                                </>
+                              )}
                             </div>
                           )}
-                          {comercial.estado_transcodificacion === 'COMPLETADO' && comercial.ruta_h264 && (
+                          {comercial.estado_transcodificacion === 'COMPLETADO' && comercial.modulo_info?.tipo !== 'audio' && comercial.ruta_h264 && (
                             <div className="relative group">
                               <button 
                                 onClick={() => handleDownload(comercial, 'h264')}
@@ -1588,6 +1933,21 @@ function ComercialesManager() {
                               </button>
                               <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
                                 Download H.264
+                              </div>
+                            </div>
+                          )}
+                          {comercial.estado_transcodificacion === 'COMPLETADO' && comercial.modulo_info?.tipo === 'audio' && (comercial.ruta_mp3 || (comercial.ruta_h264 && comercial.ruta_h264.endsWith('.mp3'))) && (
+                            <div className="relative group">
+                              <button 
+                                onClick={() => handleDownload(comercial, 'mp3')}
+                                className="p-1 text-orange-600 hover:bg-orange-50 rounded transition-colors" 
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
+                                  <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
+                                </svg>
+                              </button>
+                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                Download MP3
                               </div>
                             </div>
                           )}
@@ -1773,6 +2133,19 @@ function ComercialesManager() {
           onSuccess={() => {
             setEncodingComercial(null);
             alert('✓ Encoding iniciado exitosamente');
+          }}
+        />
+      )}
+
+      {/* Audio Encoding Modal */}
+      {encodingAudio && (
+        <AudioEncodingModal
+          audio={encodingAudio}
+          onClose={() => setEncodingAudio(null)}
+          onSuccess={() => {
+            setEncodingAudio(null);
+            // Opcional: refrescar lista luego
+            // fetchComerciales();
           }}
         />
       )}

@@ -10,15 +10,16 @@ from .models import Broadcast
 
 def detect_hardware_encoder():
     """
-    Detecta qué encoder de hardware está disponible y retorna la configuración óptima.
+    Detecta y configura el mejor encoder de hardware disponible para H.264
     
-    Estrategia por sistema operativo:
-    - macOS/Darwin: VideoToolbox (GPU de Apple Silicon o Intel)
-    - Linux con NVIDIA: NVENC (GPU aceleración)
-    - Linux con Intel/AMD: VAAPI o QSV (GPU integrada)
-    - Fallback: Software optimizado multi-core
+    Orden de prioridad:
+    1. VideoToolbox (macOS) - Aceleración hardware nativa de Apple
+    2. NVENC (NVIDIA GPU) - Encoders de hardware de NVIDIA
+    3. VAAPI (Intel/AMD Linux) - API de video de código abierto
+    4. QSV (Intel QuickSync) - Tecnología de Intel
+    5. libx264 (software) - Fallback por CPU (siempre disponible)
     
-    Retorna: dict con 'type', 'h264_encoder', 'h265_encoder', 'hwaccel'
+    Retorna: dict con 'type', 'h264_encoder', 'hwaccel'
     """
     system = platform.system().lower()
     print(f"🖥️  Sistema detectado: {system}")
@@ -105,12 +106,12 @@ def detect_hardware_encoder():
 
 # Detectar encoder al iniciar el módulo
 HW_ENCODER_CONFIG = detect_hardware_encoder()
-print(f"🎬 FFmpeg usando: {HW_ENCODER_CONFIG['type'].upper()} - H.264: {HW_ENCODER_CONFIG['h264_encoder']}, H.265: {HW_ENCODER_CONFIG['h265_encoder']}")
+print(f"🎬 FFmpeg usando: {HW_ENCODER_CONFIG['type'].upper()} - H.264: {HW_ENCODER_CONFIG['h264_encoder']}")
 
 @shared_task
 def transcode_video(broadcast_id):
     """
-    Tarea Celery para transcodificar videos a H.264 y H.265 (HEVC) con aceleración por GPU si está disponible.
+    Tarea Celery para transcodificar videos a H.264 con deinterlace y aceleración por GPU si está disponible.
     
     Args:
         broadcast_id: UUID del broadcast a transcodificar
@@ -130,9 +131,6 @@ def transcode_video(broadcast_id):
         short_id = str(broadcast.id)[:8]
         
         # Crear directorios de salida si no existen
-        h264_dir = Path(settings.MEDIA_ROOT) / 'H264'
-        h264_dir.mkdir(parents=True, exist_ok=True)
-        
         support_dir = Path(settings.MEDIA_ROOT) / 'support'
         support_dir.mkdir(parents=True, exist_ok=True)
         
@@ -141,10 +139,7 @@ def transcode_video(broadcast_id):
         
         # Generar nombres de archivo con UUID corto (8 caracteres)
         output_h264_filename = f"{short_id}_h264.mp4"
-        output_h264_path = h264_dir / output_h264_filename
-        
-        output_h265_filename = f"{short_id}_h265.mp4"
-        output_h265_path = support_dir / output_h265_filename
+        output_h264_path = support_dir / output_h264_filename
         
         # Generar nombre del thumbnail
         thumbnail_filename = f"{short_id}_thumb.jpg"
@@ -304,7 +299,7 @@ def transcode_video(broadcast_id):
             ])
         
         command_h264.extend([
-            '-vf', 'scale=-2:1080',  # 1080p
+            '-vf', 'yadif=0:-1:0,scale=-2:1080',  # Deinterlace + 1080p
             '-c:a', 'aac',
             '-b:a', '192k',
             '-movflags', '+faststart',
@@ -323,92 +318,21 @@ def transcode_video(broadcast_id):
         )
         print(f"✓ H.264 completado: {output_h264_path}")
 
-        # Guardar ruta H.264 inmediatamente
-        broadcast.ruta_h264 = f'H264/{output_h264_filename}'
-        broadcast.save(update_fields=['ruta_h264'])
-
         # ====================================================================
-        # PASO 4: TRANSCODIFICAR A H.265 (para proxy/streaming eficiente)
-        # ====================================================================
-        print(f"🎬 Transcodificando H.265 para proxy (720p)...")
-        command_h265 = ['ffmpeg']
-        
-        # Agregar aceleración de hardware
-        if HW_ENCODER_CONFIG['hwaccel']:
-            if HW_ENCODER_CONFIG['type'] == 'videotoolbox':
-                # VideoToolbox no necesita hwaccel explícito
-                pass
-            elif HW_ENCODER_CONFIG['type'] == 'nvenc':
-                command_h265.extend(['-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda'])
-            elif HW_ENCODER_CONFIG['type'] == 'vaapi':
-                command_h265.extend(['-hwaccel', 'vaapi', '-vaapi_device', HW_ENCODER_CONFIG['vaapi_device']])
-        
-        command_h265.extend([
-            '-i', str(input_path),
-            '-c:v', HW_ENCODER_CONFIG['h265_encoder'],  # Usar encoder detectado
-        ])
-        
-        # Configuración según el tipo de encoder
-        if HW_ENCODER_CONFIG['type'] == 'videotoolbox':
-            command_h265.extend([
-                '-b:v', '4M',        # Bitrate 4 Mbps para proxy
-                '-maxrate', '6M',
-                '-bufsize', '8M',
-                '-allow_sw', '1',    # Permitir fallback a software
-            ])
-        elif HW_ENCODER_CONFIG['type'] == 'nvenc':
-            command_h265.extend([
-                '-preset', 'p3',     # Preset rápido para proxy
-                '-rc:v', 'vbr',
-                '-cq:v', '26',
-                '-b:v', '4M',
-                '-maxrate', '6M',
-                '-bufsize', '8M',
-            ])
-        elif HW_ENCODER_CONFIG['type'] == 'vaapi':
-            command_h265.extend([
-                '-qp', '26',
-            ])
-        else:  # software - OPTIMIZADO PARA VELOCIDAD
-            command_h265.extend([
-                '-preset', 'ultrafast',  # ultrafast para H.265 proxy (es solo 720p)
-                '-crf', '28',            # CRF más alto = más rápido
-                '-threads', '0',
-                '-x265-params', 'aq-mode=0:me=dia:rd=2:ref=1',  # Parámetros ultra rápidos
-            ])
-        
-        command_h265.extend([
-            '-vf', 'scale=-2:720',  # 720p
-            '-c:a', 'aac',
-            '-b:a', '128k',
-            '-movflags', '+faststart',
-            str(output_h265_path),
-            '-y'
-        ])
-        
-        # Ejecutar FFmpeg para H.265
-        subprocess.run(
-            command_h265,
-            check=True,
-            capture_output=True,
-            text=True
-        )
-        print(f"✓ H.265 completado: {output_h265_path}")
-
-        # ====================================================================
-        # PASO 5: GUARDAR RUTAS EN EL MODELO Y MARCAR COMO COMPLETADO
+        # PASO 4: GUARDAR RUTAS EN EL MODELO Y MARCAR COMO COMPLETADO
         # ====================================================================
         print(f"💾 Guardando rutas en base de datos...")
-        broadcast.ruta_proxy = f'support/{output_h265_filename}'
+        broadcast.ruta_h264 = f'support/{output_h264_filename}'
+        broadcast.ruta_proxy = f'support/{output_h264_filename}'  # Usar H.264 también como proxy
         broadcast.estado_transcodificacion = 'COMPLETADO'
-        broadcast.save(update_fields=['ruta_proxy', 'estado_transcodificacion'])
+        broadcast.last_error = None
+        broadcast.save(update_fields=['ruta_h264', 'ruta_proxy', 'estado_transcodificacion', 'last_error'])
         print(f"✅ Transcodificación completada exitosamente para broadcast {broadcast.id}")
 
         return {
             'status': 'success',
             'broadcast_id': str(broadcast.id),
             'output_h264_path': str(output_h264_path),
-            'output_h265_path': str(output_h265_path),
             'thumbnail_path': str(thumbnail_path),
             'pizarra_path': str(pizarra_path)
         }
@@ -421,7 +345,12 @@ def transcode_video(broadcast_id):
         if 'broadcast' in locals():
             # Conservar cualquier progreso parcial (thumbnails/ruta_h264) y marcar ERROR
             broadcast.estado_transcodificacion = 'ERROR'
-            broadcast.save(update_fields=['estado_transcodificacion'])
+            # Guardar stderr truncado para diagnóstico
+            err = (e.stderr or '').strip()
+            if err and len(err) > 8000:
+                err = err[-8000:]  # guardar los últimos 8k
+            broadcast.last_error = err or f"FFmpeg error (code {e.returncode})"
+            broadcast.save(update_fields=['estado_transcodificacion', 'last_error'])
         # Log básico para depuración rápida en worker
         try:
             print('✗ FFmpeg error:', e.stderr[:2000])
@@ -437,7 +366,12 @@ def transcode_video(broadcast_id):
         # Cualquier otro error
         if 'broadcast' in locals():
             broadcast.estado_transcodificacion = 'ERROR'
-            broadcast.save()
+            # Guardar mensaje de error
+            msg = str(e)
+            if msg and len(msg) > 8000:
+                msg = msg[:8000]
+            broadcast.last_error = msg
+            broadcast.save(update_fields=['estado_transcodificacion', 'last_error'])
         return {'error': str(e)}
 
 
@@ -606,4 +540,323 @@ def encode_custom_video(broadcast_id, encoding_settings, preset_id='custom'):
     except Exception as e:
         # Cualquier otro error
         print(f"❌ Error en codificación: {str(e)}")
+        return {'error': str(e)}
+
+
+@shared_task
+def process_audio(audio_id):
+    """
+    Tarea Celery para procesar archivos de audio.
+    Convierte cualquier formato de audio a MP3 para reproducción web.
+    Genera iconos de audio para thumbnail y pizarra.
+    
+    Args:
+        audio_id: UUID del audio a procesar
+    """
+    try:
+        from .models import Audio
+        
+        audio = Audio.objects.get(id=audio_id)
+        
+        # Verificar que existe el archivo original
+        if not audio.archivo_original:
+            audio.estado_procesamiento = 'ERROR'
+            audio.save()
+            return {'error': 'No hay archivo original'}
+
+        input_path = audio.archivo_original.path
+        
+        # Usar solo los primeros 8 caracteres del UUID
+        short_id = str(audio.id)[:8]
+        
+        # Crear directorios de salida si no existen
+        support_dir = Path(settings.MEDIA_ROOT) / 'support'
+        support_dir.mkdir(parents=True, exist_ok=True)
+        
+        thumbnail_dir = Path(settings.MEDIA_ROOT) / 'thumbnails'
+        thumbnail_dir.mkdir(parents=True, exist_ok=True)
+        
+        pizarra_dir = Path(settings.MEDIA_ROOT) / 'pizarra'
+        pizarra_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Marcar como procesando
+        audio.estado_procesamiento = 'PROCESANDO'
+        audio.save()
+
+        # ====================================================================
+        # PASO 1: CONVERTIR A MP3 (para reproducción web)
+        # ====================================================================
+        print(f"🎵 Convirtiendo audio a MP3...")
+        
+        output_mp3_filename = f"{short_id}.mp3"
+        output_mp3_path = support_dir / output_mp3_filename
+        
+        mp3_command = [
+            'ffmpeg',
+            '-i', str(input_path),
+            '-codec:a', 'libmp3lame',  # Codec MP3
+            '-qscale:a', '2',           # Calidad alta (0-9, donde 0 es mejor)
+            '-ar', '44100',             # Sample rate 44.1kHz
+            '-ac', '2',                 # Stereo
+            str(output_mp3_path),
+            '-y'
+        ]
+        
+        subprocess.run(
+            mp3_command,
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        
+        print(f"✓ MP3 generado: {output_mp3_path}")
+        
+        # Guardar ruta del MP3
+        audio.ruta_mp3 = f'support/{output_mp3_filename}'
+        audio.save(update_fields=['ruta_mp3'])
+
+        # ====================================================================
+        # PASO 2: GENERAR ICONOS DE AUDIO (thumbnail y pizarra)
+        # ====================================================================
+        
+        # Usar un icono estático de audio (puedes cambiarlo por un ícono personalizado)
+        # Por ahora, generamos un placeholder simple con FFmpeg
+        
+        print(f"🎨 Generando thumbnail de audio...")
+        thumbnail_filename = f"{short_id}_thumb.jpg"
+        thumbnail_path = thumbnail_dir / thumbnail_filename
+        
+        # Crear imagen con color de fondo y texto "AUDIO"
+        thumbnail_command = [
+            'ffmpeg',
+            '-f', 'lavfi',
+            '-i', 'color=c=#1e40af:s=640x360:d=1',  # Fondo azul
+            '-vf', 'drawtext=text=\'♪\':fontsize=120:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2',
+            '-frames:v', '1',
+            str(thumbnail_path),
+            '-y'
+        ]
+        
+        try:
+            subprocess.run(
+                thumbnail_command,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            print(f"✓ Thumbnail generado: {thumbnail_path}")
+            audio.thumbnail = f'thumbnails/{thumbnail_filename}'
+        except subprocess.CalledProcessError as e:
+            print(f"⚠️ Error generando thumbnail, usando fallback: {e}")
+            # Si falla, simplemente no asignamos thumbnail
+
+        print(f"🎨 Generando pizarra de audio...")
+        pizarra_filename = f"{short_id}_pizarra.jpg"
+        pizarra_path = pizarra_dir / pizarra_filename
+        
+        # Crear imagen similar para pizarra
+        pizarra_command = [
+            'ffmpeg',
+            '-f', 'lavfi',
+            '-i', 'color=c=#1e40af:s=1280x720:d=1',
+            '-vf', 'drawtext=text=\'♪\':fontsize=240:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2',
+            '-frames:v', '1',
+            str(pizarra_path),
+            '-y'
+        ]
+        
+        try:
+            subprocess.run(
+                pizarra_command,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            print(f"✓ Pizarra generada: {pizarra_path}")
+            audio.pizarra_thumbnail = f'pizarra/{pizarra_filename}'
+        except subprocess.CalledProcessError as e:
+            print(f"⚠️ Error generando pizarra, usando fallback: {e}")
+
+        # ====================================================================
+        # PASO 3: EXTRAER METADATA DEL AUDIO
+        # ====================================================================
+        print(f"📋 Extrayendo metadata del audio...")
+        
+        metadata_command = [
+            'ffprobe',
+            '-v', 'quiet',
+            '-print_format', 'json',
+            '-show_format',
+            str(input_path)
+        ]
+        
+        try:
+            metadata_result = subprocess.run(
+                metadata_command,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            
+            import json
+            metadata_json = json.loads(metadata_result.stdout)
+            
+            # Extraer tags si existen
+            tags = metadata_json.get('format', {}).get('tags', {})
+            duration = float(metadata_json.get('format', {}).get('duration', 0))
+            
+            # Guardar metadata relevante
+            audio.metadata = {
+                'titulo': tags.get('title', audio.nombre_original),
+                'artista': tags.get('artist', ''),
+                'album': tags.get('album', ''),
+                'duracion': round(duration, 2),
+                'bitrate': metadata_json.get('format', {}).get('bit_rate', ''),
+            }
+            
+            print(f"✓ Metadata extraída: {audio.metadata}")
+            
+        except Exception as e:
+            print(f"⚠️ Error extrayendo metadata: {e}")
+            audio.metadata = {'titulo': audio.nombre_original}
+
+        # ====================================================================
+        # FINALIZAR PROCESAMIENTO
+        # ====================================================================
+        
+        audio.estado_procesamiento = 'COMPLETADO'
+        audio.save()
+        
+        print(f"✅ Procesamiento de audio completado exitosamente")
+        print(f"📊 MP3: {output_mp3_path.stat().st_size / (1024*1024):.2f} MB")
+        
+        return {
+            'status': 'success',
+            'audio_id': str(audio.id),
+            'mp3_path': str(output_mp3_path),
+            'metadata': audio.metadata
+        }
+
+    except Exception as e:
+        print(f"❌ Error procesando audio: {str(e)}")
+        
+        try:
+            audio.estado_procesamiento = 'ERROR'
+            audio.save()
+        except:
+            pass
+        
+        return {'error': str(e)}
+
+
+@shared_task
+def encode_custom_audio(audio_id, encoding_settings, preset_id='custom'):
+    """
+    Tarea Celery para codificar audios con configuración personalizada.
+    Genera un archivo en MEDIA_ROOT/encoded_audio y no modifica el modelo.
+
+    Args:
+        audio_id: UUID del audio a codificar
+        encoding_settings: Diccionario con la configuración de encoding de audio
+        preset_id: ID del preset utilizado
+    """
+    try:
+        from .models import Audio
+        audio = Audio.objects.get(id=audio_id)
+        if not audio.archivo_original:
+            return {'error': 'No hay archivo original'}
+
+        input_path = audio.archivo_original.path
+        short_id = str(audio.id)[:8]
+
+        # Crear directorio de salida
+        output_dir = Path(settings.MEDIA_ROOT) / 'encoded_audio'
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Extraer configuración con defaults razonables
+        codec = encoding_settings.get('audio_codec', 'aac')
+        bitrate = encoding_settings.get('audio_bitrate', '192k')
+        sample_rate = str(encoding_settings.get('sample_rate', '44100'))
+        channels = str(encoding_settings.get('channels', '2'))
+        container = encoding_settings.get('container')
+
+        # Normalizar alias de codecs a nombres soportados por FFmpeg
+        codec_alias = {
+            'mp3': 'libmp3lame',
+            'opus': 'libopus',
+        }
+        normalized_codec = codec_alias.get(codec, codec)
+        codec = normalized_codec
+
+        # Mapeo de contenedor recomendado por codec
+        default_container_by_codec = {
+            'aac': 'm4a',
+            'libmp3lame': 'mp3',
+            'ac3': 'ac3',
+            'eac3': 'eac3',
+            'flac': 'flac',
+            'alac': 'm4a',
+            'libopus': 'opus',
+            'pcm_s16le': 'wav',
+        }
+
+        # Determinar contenedor por codec si no se especifica
+        if not container:
+            container = default_container_by_codec.get(codec, 'm4a')
+        else:
+            # Corregir combinaciones incompatibles comunes (p.ej. AAC en contenedor MP3)
+            recommended = default_container_by_codec.get(codec)
+            if recommended and container != recommended:
+                # Reglas de seguridad para evitar fallos por mismatch evidente
+                if (container == 'mp3' and codec != 'libmp3lame') or \
+                   (container == 'm4a' and codec not in ['aac', 'alac']) or \
+                   (container == 'wav' and not codec.startswith('pcm')):
+                    container = recommended
+
+        output_filename = f"{short_id}_{preset_id}.{container}"
+        output_path = output_dir / output_filename
+
+        # Construir comando FFmpeg para audio
+        command = ['ffmpeg', '-i', str(input_path), '-vn']
+
+        # Codec
+        command.extend(['-c:a', codec])
+
+        # Bitrate (si aplica)
+        if codec not in ['flac', 'pcm_s16le', 'alac'] and bitrate:
+            command.extend(['-b:a', str(bitrate)])
+
+        # Parámetros comunes
+        if sample_rate:
+            command.extend(['-ar', sample_rate])
+        if channels:
+            command.extend(['-ac', channels])
+
+        # ALAC necesita container m4a y no usa -b:a
+        if codec == 'alac':
+            if container != 'm4a':
+                container = 'm4a'
+                output_filename = f"{short_id}_{preset_id}.{container}"
+                output_path = output_dir / output_filename
+
+        # Agregar output y overwrite
+        command.extend([str(output_path), '-y'])
+
+        print(f"🎵 Ejecutando FFmpeg (audio): {' '.join(command)}")
+        subprocess.run(command, check=True, capture_output=True, text=True)
+
+        size_mb = round(output_path.stat().st_size / (1024*1024), 2)
+        print(f"✅ Audio codificado: {output_filename} ({size_mb} MB)")
+
+        return {
+            'status': 'success',
+            'audio_id': str(audio.id),
+            'output_path': str(output_path),
+            'output_filename': output_filename,
+            'preset_id': preset_id,
+            'file_size_mb': size_mb,
+        }
+
+    except Exception as e:
+        print(f"❌ Error en codificación de audio: {str(e)}")
         return {'error': str(e)}

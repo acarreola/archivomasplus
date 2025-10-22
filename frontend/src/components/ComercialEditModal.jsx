@@ -6,6 +6,7 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
   const [activeTab, setActiveTab] = useState('preview'); // 'preview' or 'edit'
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
+  const isAudio = !!(comercial?.modulo_info?.tipo === 'audio' || comercial?.ruta_mp3 || (comercial?.ruta_h264 && comercial?.ruta_h264.endsWith?.('.mp3')));
   
   // Form data for editing
   const [formData, setFormData] = useState({
@@ -64,7 +65,12 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
     setError('');
     
     try {
-      await axios.patch(`/api/broadcasts/${comercial.id}/`, formData);
+      if (isAudio) {
+        // Only allow renaming the filename for audio items
+        await axios.patch(`/api/audios/${comercial.id}/`, { nombre_original: formData.nombre_original });
+      } else {
+        await axios.patch(`/api/broadcasts/${comercial.id}/`, formData);
+      }
       onSave && onSave();
       onClose();
     } catch (err) {
@@ -90,7 +96,7 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
         <div className="bg-blue-700 text-white px-6 py-4">
           <div className="flex justify-between items-center mb-3">
             <h2 className="text-xl font-semibold">
-              {activeTab === 'preview' ? 'PREVIEW' : 'EDIT METADATA'}
+              {isAudio ? 'RENAME AUDIO' : (activeTab === 'preview' ? 'PREVIEW' : 'EDIT METADATA')}
             </h2>
             <button 
               onClick={onClose}
@@ -101,33 +107,60 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
           </div>
           
           {/* Tab Buttons */}
-          <div className="flex space-x-2">
-            <button
-              onClick={() => setActiveTab('preview')}
-              className={`px-4 py-2 rounded-t-lg font-semibold transition ${
-                activeTab === 'preview' 
-                  ? 'bg-white text-blue-700' 
-                  : 'bg-blue-600 text-white hover:bg-blue-500'
-              }`}
-            >
-              Preview
-            </button>
-            <button
-              onClick={() => setActiveTab('edit')}
-              className={`px-4 py-2 rounded-t-lg font-semibold transition ${
-                activeTab === 'edit' 
-                  ? 'bg-white text-blue-700' 
-                  : 'bg-blue-600 text-white hover:bg-blue-500'
-              }`}
-            >
-              Edit Metadata
-            </button>
-          </div>
+          {!isAudio && (
+            <div className="flex space-x-2">
+              <button
+                onClick={() => setActiveTab('preview')}
+                className={`px-4 py-2 rounded-t-lg font-semibold transition ${
+                  activeTab === 'preview' 
+                    ? 'bg-white text-blue-700' 
+                    : 'bg-blue-600 text-white hover:bg-blue-500'
+                }`}
+              >
+                Preview
+              </button>
+              <button
+                onClick={() => setActiveTab('edit')}
+                className={`px-4 py-2 rounded-t-lg font-semibold transition ${
+                  activeTab === 'edit' 
+                    ? 'bg-white text-blue-700' 
+                    : 'bg-blue-600 text-white hover:bg-blue-500'
+                }`}
+              >
+                Edit Metadata
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6 bg-white">
-          {activeTab === 'preview' ? (
+          {isAudio ? (
+            // Audio: Only allow renaming filename
+            <form onSubmit={handleSubmit} className="space-y-6 max-w-xl mx-auto">
+              {error && (
+                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+                  {error}
+                </div>
+              )}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">Filename</label>
+                <input
+                  type="text"
+                  name="nombre_original"
+                  value={formData.nombre_original}
+                  onChange={(e) => setFormData(prev => ({ ...prev, nombre_original: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  placeholder="Enter new filename"
+                />
+                <p className="text-xs text-gray-500 mt-1">Only the displayed filename will change.</p>
+              </div>
+              <div className="flex justify-end space-x-3 pt-2">
+                <button type="button" onClick={onClose} className="px-6 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition font-semibold" disabled={isSaving}>Cancel</button>
+                <button type="submit" className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold disabled:opacity-50" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save'}</button>
+              </div>
+            </form>
+          ) : activeTab === 'preview' ? (
             /* Vista Preview - Thumbnail on top, info below */
             <div className="max-w-3xl mx-auto space-y-6">
               {/* Thumbnail Preview - 30% smaller */}

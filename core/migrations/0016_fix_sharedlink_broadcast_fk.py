@@ -3,6 +3,25 @@
 from django.db import migrations
 
 
+def rename_sharedlink_fk(apps, schema_editor):
+    """Rename core_sharedlink.comercial_id to broadcast_id if it exists (cross-DB compatible)."""
+    table = 'core_sharedlink'
+    old_col = 'comercial_id'
+    new_col = 'broadcast_id'
+
+    # Introspect table columns
+    with schema_editor.connection.cursor() as cursor:
+        try:
+            desc = schema_editor.connection.introspection.get_table_description(cursor, table)
+        except Exception:
+            # Table might not exist yet
+            return
+        col_names = [getattr(c, 'name', c[0] if isinstance(c, (list, tuple)) and c else None) for c in desc]
+        if old_col in col_names and new_col not in col_names:
+            # SQLite and Postgres (and modern MariaDB/MySQL) support simple rename column
+            cursor.execute(f"ALTER TABLE {table} RENAME COLUMN {old_col} TO {new_col};")
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -10,21 +29,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # Check if the column exists before renaming
-        migrations.RunSQL(
-            sql="""
-                DO $$
-                BEGIN
-                    IF EXISTS (
-                        SELECT 1 FROM information_schema.columns 
-                        WHERE table_name='core_sharedlink' 
-                        AND column_name='comercial_id'
-                    ) THEN
-                        ALTER TABLE core_sharedlink 
-                        RENAME COLUMN comercial_id TO broadcast_id;
-                    END IF;
-                END $$;
-            """,
-            reverse_sql=migrations.RunSQL.noop,
-        ),
+        migrations.RunPython(rename_sharedlink_fk, migrations.RunPython.noop),
     ]

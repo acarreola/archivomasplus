@@ -28,6 +28,17 @@ export default function RepositoriosManager() {
     modulos_ids: []
   });
   const [error, setError] = useState('');
+  // Estado de soporte/estatus
+  const [showStatus, setShowStatus] = useState(false);
+  const [statusRepo, setStatusRepo] = useState(null);
+  const [statusLoading, setStatusLoading] = useState(false);
+  const [statusData, setStatusData] = useState(null);
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [pendingDetails, setPendingDetails] = useState({
+    sin_archivo: { loading: false, items: [] },
+    archivo_no_existe: { loading: false, items: [] },
+    listo_para_iniciar: { loading: false, items: [] },
+  });
 
   const handleDeleteAllBroadcasts = async () => {
     if (!window.confirm('¿Estás seguro de que quieres eliminar TODOS los broadcasts de la base de datos? Esta acción no se puede deshacer.')) {
@@ -59,6 +70,15 @@ export default function RepositoriosManager() {
     fetchUsers();
     fetchModulos();
   }, []);
+
+  // Auto-refresh del estado cuando está procesando
+  useEffect(() => {
+    if (!autoRefresh || !statusRepo) return;
+    const interval = setInterval(() => {
+      fetchStatus(statusRepo.id);
+    }, 5000); // cada 5 segundos
+    return () => clearInterval(interval);
+  }, [autoRefresh, statusRepo]);
 
   const fetchRepositorios = async () => {
     try {
@@ -220,6 +240,80 @@ export default function RepositoriosManager() {
     }
   };
 
+  // ----- ESTADO / SOPORTE -----
+  const openStatusModal = async (repo) => {
+    setStatusRepo(repo);
+    setShowStatus(true);
+    setStatusData(null);
+    setPendingDetails({
+      sin_archivo: { loading: false, items: [] },
+      archivo_no_existe: { loading: false, items: [] },
+      listo_para_iniciar: { loading: false, items: [] },
+    });
+    await fetchStatus(repo.id);
+  };
+
+  const closeStatusModal = () => {
+    setShowStatus(false);
+    setStatusRepo(null);
+    setStatusData(null);
+    setAutoRefresh(false);
+  };
+
+  const fetchStatus = async (repoId) => {
+    try {
+      setStatusLoading(true);
+      const resp = await axios.get(`http://localhost:8000/api/broadcasts/transcode_status/?repositorio=${repoId}`);
+      setStatusData(resp.data);
+      // Auto-activar refresh si hay items procesando
+      if (resp.data?.estados?.PROCESANDO > 0) {
+        setAutoRefresh(true);
+      } else {
+        setAutoRefresh(false);
+      }
+    } catch (err) {
+      console.error('Error obteniendo estado:', err);
+      setStatusData({ error: err.response?.data?.error || err.message });
+    } finally {
+      setStatusLoading(false);
+    }
+  };
+
+  const fetchPendingDetails = async (repoId, reason) => {
+    try {
+      setPendingDetails(prev => ({ ...prev, [reason]: { ...prev[reason], loading: true } }));
+      const resp = await axios.get(`http://localhost:8000/api/broadcasts/pending_details/?repositorio=${repoId}&reason=${reason}&limit=200`);
+      setPendingDetails(prev => ({ ...prev, [reason]: { loading: false, items: resp.data?.items || [] } }));
+    } catch (err) {
+      console.error('Error obteniendo pendientes:', err);
+      setPendingDetails(prev => ({ ...prev, [reason]: { loading: false, items: [] } }));
+      alert('Error al cargar detalles de pendientes: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
+  const retryErrors = async (repoId) => {
+    if (!window.confirm('¿Reintentar todos los fallidos de este repositorio?')) return;
+    try {
+      const resp = await axios.post('http://localhost:8000/api/broadcasts/retry_errors/', { repositorio_id: repoId });
+      alert(`✅ Se reintentaron ${resp.data.queued} broadcasts.\n⚠️ Omitidos ${resp.data.skipped_no_file} por archivo faltante.\n\n🔄 La transcodificación está en proceso. El panel se actualizará automáticamente cada 5 segundos.`);
+      await fetchStatus(repoId);
+    } catch (err) {
+      console.error('Error reintentando fallidos:', err);
+      alert('Error al reintentar: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
+  const retryOne = async (broadcastId) => {
+    try {
+      const resp = await axios.post(`http://localhost:8000/api/broadcasts/${broadcastId}/retry/`);
+      alert('Reintentado: ' + (resp.data?.id || broadcastId));
+      if (statusRepo) await fetchStatus(statusRepo.id);
+    } catch (err) {
+      console.error('Error reintentando item:', err);
+      alert('Error al reintentar: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
   const handlePreviewMatch = async (repositorioId) => {
     setShowPreview(true);
     setPreviewLoading(true);
@@ -350,7 +444,24 @@ export default function RepositoriosManager() {
       handleCloseModal();
     } catch (err) {
       console.error('Error saving repositorio:', err);
-      setError(err.response?.data?.detail || 'Error saving repository');
+      const data = err.response?.data;
+      let msg = 'Error saving repository';
+      if (data) {
+        if (typeof data === 'string') {
+          msg = data;
+        } else if (data.detail) {
+          msg = data.detail;
+        } else if (typeof data === 'object') {
+          try {
+            const parts = Object.entries(data).map(([k, v]) => {
+              const vv = Array.isArray(v) ? v.join(', ') : (typeof v === 'string' ? v : JSON.stringify(v));
+              return `${k}: ${vv}`;
+            });
+            if (parts.length) msg = parts.join(' | ');
+          } catch (_) {}
+        }
+      }
+      setError(msg);
     }
   };
 
@@ -528,6 +639,19 @@ export default function RepositoriosManager() {
                       </button>
                       <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
                         Transcode
+                      </div>
+                    </div>
+
+                    {/* Soporte/Estado */}
+                    <div className="relative group">
+                      <button
+                        onClick={() => openStatusModal(repo)}
+                        className="inline-flex items-center justify-center p-2 text-cyan-700 hover:text-white hover:bg-cyan-700 rounded-lg border border-cyan-300 transition-all"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor"><path d="M480-80q-83 0-156-31.5t-127.5-86Q141-252 110.5-325T79-480q0-83 31.5-156t85.5-127q54-54 127-85.5T480-880q83 0 156 31.5t127 85.5q54 54 85.5 127T880-480q0 81-31.5 154T763-199q-54 54-127 86.5T480-80Zm0-80q134 0 227-93t93-227q0-134-93-227t-227-93q-134 0-227 93t-93 227q0 134 93 227t227 93Zm0-140q17 0 28.5-11.5T520-340q0-17-11.5-28.5T480-380q-17 0-28.5 11.5T440-340q0 17 11.5 28.5T480-300Zm-40-140h80v-240h-80v240Z"/></svg>
+                      </button>
+                      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                        Soporte
                       </div>
                     </div>
                     
@@ -780,6 +904,230 @@ export default function RepositoriosManager() {
                 >
                   Aplicar vinculación
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Soporte / Estado */}
+      {showStatus && statusRepo && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="bg-cyan-700 text-white px-6 py-4 flex justify-between items-center">
+              <h3 className="text-xl font-bold">Soporte / Estado de Transcodificación — {statusRepo.nombre}</h3>
+              <button onClick={closeStatusModal} className="text-white hover:text-gray-200 text-2xl">✕</button>
+            </div>
+            <div className="p-6 space-y-6">
+              <div className="flex items-center gap-3 flex-wrap">
+                <button onClick={() => fetchStatus(statusRepo.id)} className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded border">Actualizar</button>
+                <button onClick={() => retryErrors(statusRepo.id)} className="px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded">Reintentar fallidos</button>
+                <div className="flex items-center gap-2 ml-auto">
+                  <label className="flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={autoRefresh}
+                      onChange={(e) => setAutoRefresh(e.target.checked)}
+                      className="w-4 h-4"
+                    />
+                    Auto-actualizar cada 5 seg
+                  </label>
+                  {autoRefresh && statusData?.estados?.PROCESANDO > 0 && (
+                    <span className="text-xs text-green-700 font-medium animate-pulse">🔄 Actualizando...</span>
+                  )}
+                </div>
+              </div>
+
+              {statusLoading && (
+                <div className="text-gray-500">Cargando estado…</div>
+              )}
+              {!statusLoading && statusData && statusData.error && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded text-sm">{statusData.error}</div>
+              )}
+              {!statusLoading && statusData && !statusData.error && (
+                <>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                    <StatItem label="Total" value={statusData.total} />
+                    <StatItem label="Completado" value={statusData.estados?.COMPLETADO ?? 0} color="text-green-700" />
+                    <StatItem label="Error" value={statusData.estados?.ERROR ?? 0} color="text-red-700" />
+                    <StatItem label="Procesando" value={statusData.estados?.PROCESANDO ?? 0} color="text-orange-700" />
+                    <StatItem label="Pendiente" value={statusData.estados?.PENDIENTE ?? 0} color="text-yellow-700" />
+                  </div>
+
+                  {/* Barra de progreso */}
+                  {statusData.total > 0 && (
+                    <div className="border rounded p-4 bg-gradient-to-r from-blue-50 to-indigo-50">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-semibold text-gray-800">Progreso de Transcodificación</h4>
+                        <div className="text-sm text-gray-600">
+                          {statusData.estados?.COMPLETADO ?? 0} / {statusData.total} 
+                          {' '}({Math.round(((statusData.estados?.COMPLETADO ?? 0) / statusData.total) * 100)}%)
+                        </div>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-6 overflow-hidden shadow-inner">
+                        <div 
+                          className="bg-gradient-to-r from-green-500 to-green-600 h-full transition-all duration-500 flex items-center justify-center text-white text-xs font-bold"
+                          style={{ width: `${Math.round(((statusData.estados?.COMPLETADO ?? 0) / statusData.total) * 100)}%` }}
+                        >
+                          {Math.round(((statusData.estados?.COMPLETADO ?? 0) / statusData.total) * 100) > 5 && 
+                            `${Math.round(((statusData.estados?.COMPLETADO ?? 0) / statusData.total) * 100)}%`
+                          }
+                        </div>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between text-xs text-gray-600">
+                        <div className="flex items-center gap-4">
+                          {statusData.estados?.PROCESANDO > 0 && (
+                            <span className="flex items-center gap-1">
+                              <span className="inline-block w-2 h-2 bg-orange-500 rounded-full animate-pulse"></span>
+                              {statusData.estados.PROCESANDO} procesando
+                            </span>
+                          )}
+                          {statusData.estados?.ERROR > 0 && (
+                            <span className="flex items-center gap-1">
+                              <span className="inline-block w-2 h-2 bg-red-500 rounded-full"></span>
+                              {statusData.estados.ERROR} fallaron
+                            </span>
+                          )}
+                          {statusData.estados?.PENDIENTE > 0 && (
+                            <span className="flex items-center gap-1">
+                              <span className="inline-block w-2 h-2 bg-yellow-500 rounded-full"></span>
+                              {statusData.estados.PENDIENTE} pendientes
+                            </span>
+                          )}
+                        </div>
+                        {statusData.estados?.PROCESANDO > 0 && (
+                          <span className="text-orange-700 font-medium">
+                            ⏱️ Tiempo estimado: ~{Math.ceil((statusData.estados.PROCESANDO * 30) / 60)} min
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Pendientes por razón */}
+                  <div className="border rounded p-4 bg-gray-50">
+                    <h4 className="font-semibold text-gray-800 mb-3">Pendientes por razón</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      {['Sin archivo original','Archivo no existe','Listo para iniciar'].map((label, idx) => {
+                        const key = idx === 0 ? 'sin_archivo' : idx === 1 ? 'archivo_no_existe' : 'listo_para_iniciar';
+                        const count = statusData.pendientes_por_razon?.[label] ?? 0;
+                        return (
+                          <div key={key} className="border bg-white rounded p-3">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <div className="text-sm text-gray-600">{label}</div>
+                                <div className="text-lg font-semibold">{count}</div>
+                              </div>
+                              <button
+                                disabled={count === 0 || pendingDetails[key].loading}
+                                onClick={() => fetchPendingDetails(statusRepo.id, key)}
+                                className={`px-3 py-1 rounded text-sm ${count === 0 ? 'bg-gray-200 text-gray-500' : 'bg-cyan-700 text-white hover:bg-cyan-800'}`}
+                              >
+                                Ver detalles
+                              </button>
+                            </div>
+                            {pendingDetails[key].loading && (
+                              <div className="text-xs text-gray-500 mt-2">Cargando…</div>
+                            )}
+                            {!pendingDetails[key].loading && pendingDetails[key].items?.length > 0 && (
+                              <ul className="text-xs text-gray-700 mt-2 space-y-1 max-h-40 overflow-auto">
+                                {pendingDetails[key].items.map((it, ix) => (
+                                  <li key={ix} className="flex justify-between gap-2">
+                                    <span className="truncate" title={it.nombre || ''}>#{it.id} • {it.nombre || '—'}</span>
+                                    <span className="text-gray-500 truncate" title={it.archivo || ''}>{it.archivo || ''}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Errores muestras */}
+                  <div className="border rounded p-4 bg-gray-50">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="font-semibold text-gray-800">Errores Detallados ({statusData.errores_muestras?.length || 0} muestras)</h4>
+                      {statusData.estados?.ERROR > 0 && (
+                        <button 
+                          onClick={() => retryErrors(statusRepo.id)}
+                          className="px-3 py-1 bg-orange-600 hover:bg-orange-700 text-white rounded text-sm"
+                        >
+                          Reintentar todos
+                        </button>
+                      )}
+                    </div>
+                    {(!statusData.errores_muestras || statusData.errores_muestras.length === 0) && (
+                      <div className="text-sm text-gray-500 bg-white border rounded p-4 text-center">
+                        ✅ Sin errores - Todos los archivos se procesaron correctamente
+                      </div>
+                    )}
+                    {statusData.errores_muestras && statusData.errores_muestras.length > 0 && (
+                      <div className="space-y-3">
+                        {statusData.errores_muestras.map((e, idx) => {
+                          // Extraer razón de error del last_error
+                          let razonCorta = 'Error desconocido';
+                          if (e.last_error) {
+                            if (e.last_error.includes('No such file') || e.last_error.includes('does not exist')) {
+                              razonCorta = '📁 Archivo no encontrado en disco';
+                            } else if (e.last_error.includes('Invalid data found') || e.last_error.includes('could not find codec')) {
+                              razonCorta = '🎞️ Archivo dañado o codec no soportado';
+                            } else if (e.last_error.includes('pcm') || e.last_error.includes('audio only') || e.last_error.includes('no video')) {
+                              razonCorta = '🎵 Archivo solo tiene audio (sin video)';
+                            } else if (e.last_error.includes('Permission denied')) {
+                              razonCorta = '🔒 Sin permisos de lectura';
+                            } else if (e.last_error.includes('utf-8')) {
+                              razonCorta = '⚠️ Error de codificación de caracteres';
+                            } else {
+                              razonCorta = '❌ Error de FFmpeg';
+                            }
+                          }
+                          
+                          return (
+                            <div key={idx} className="bg-white border border-red-200 rounded p-3 hover:shadow-md transition-shadow">
+                              <div className="flex items-start justify-between gap-3 mb-2">
+                                <div className="min-w-0 flex-1">
+                                  <div className="text-sm font-medium text-gray-900 truncate mb-1" title={e.nombre || ''}>
+                                    📄 {e.nombre || '—'}
+                                  </div>
+                                  <div className="text-xs text-gray-500 truncate mb-2" title={e.archivo || ''}>
+                                    📂 {e.archivo || 'Sin archivo'}
+                                  </div>
+                                  <div className="inline-flex items-center gap-2 px-3 py-1 bg-red-50 border border-red-200 rounded-full text-xs font-medium text-red-700">
+                                    {razonCorta}
+                                  </div>
+                                </div>
+                                <button 
+                                  onClick={() => retryOne(e.id)} 
+                                  className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white rounded text-sm font-medium whitespace-nowrap flex items-center gap-1"
+                                  title="Reintentar este archivo"
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="white"><path d="M480-160q-133 0-226.5-93.5T160-480q0-133 93.5-226.5T480-800q85 0 149 34.5T740-671v-129h60v254H546v-60h168q-38-60-97-97t-137-37q-109 0-184.5 75.5T220-480q0 109 75.5 184.5T480-220q83 0 152-47.5T728-393h62q-29 105-115 169t-195 64Z"/></svg>
+                                  Reintentar
+                                </button>
+                              </div>
+                              {e.last_error && (
+                                <details className="mt-2">
+                                  <summary className="text-xs text-blue-600 hover:text-blue-800 cursor-pointer font-medium">
+                                    Ver error completo
+                                  </summary>
+                                  <pre className="mt-2 text-xs text-red-700 bg-red-50 border border-red-100 p-3 rounded whitespace-pre-wrap max-h-60 overflow-auto font-mono">
+                                    {e.last_error}
+                                  </pre>
+                                </details>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+
+              <div className="flex justify-end">
+                <button onClick={closeStatusModal} className="px-4 py-2 border rounded">Cerrar</button>
               </div>
             </div>
           </div>
