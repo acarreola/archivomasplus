@@ -34,6 +34,8 @@ function ComercialesManager() {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentUser, setCurrentUser] = useState(null);
   const [playingComercial, setPlayingComercial] = useState(null);
+  const [showSafeAction, setShowSafeAction] = useState(false);
+  const [showSafeTitle, setShowSafeTitle] = useState(false);
   const [sharingComercial, setSharingComercial] = useState(null);
   const [encodingComercial, setEncodingComercial] = useState(null);
   const [encodingAudio, setEncodingAudio] = useState(null);
@@ -547,16 +549,34 @@ function ComercialesManager() {
         <div className="fixed inset-0 bg-black bg-opacity-95 flex justify-center items-center z-50 p-6">
           <div className="w-full max-w-5xl">
             {/* Header minimalista */}
-            <div className="bg-gradient-to-r from-gray-900 to-gray-800 text-white px-4 py-2 flex justify-between items-center rounded-t-lg border-b border-gray-700">
-              <h2 className="text-sm font-medium truncate">
+            <div className="bg-white text-slate-900 px-4 py-2 flex justify-between items-center rounded-t-lg border-b border-slate-200 shadow-sm">
+              <h2 className="text-sm font-semibold truncate">
                 {playingComercial.pizarra?.producto || playingComercial.nombre_original || 'Reproduciendo'}
               </h2>
-              <button 
-                onClick={() => setPlayingComercial(null)} 
-                className="text-gray-400 hover:text-white text-xl font-light ml-4 transition-colors"
-              >
-                ×
-              </button>
+              <div className="flex items-center gap-2">
+                {/* Safety toggles */}
+                <button
+                  onClick={() => setShowSafeAction(v => !v)}
+                  className={`px-2 py-1 text-xs rounded-full border ${showSafeAction ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}`}
+                  title="Toggle Action Safe (5%)"
+                >
+                  Safety Area
+                </button>
+                <button
+                  onClick={() => setShowSafeTitle(v => !v)}
+                  className={`px-2 py-1 text-xs rounded-full border ${showSafeTitle ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}`}
+                  title="Toggle Title Safe (10%)"
+                >
+                  Safety Titles
+                </button>
+                <button 
+                  onClick={() => setPlayingComercial(null)} 
+                  className="text-slate-500 hover:text-slate-800 text-xl font-light ml-2 transition-colors"
+                  aria-label="Cerrar"
+                >
+                  ×
+                </button>
+              </div>
             </div>
 
             {/* Player */}
@@ -578,51 +598,65 @@ function ComercialesManager() {
                   </div>
                 </div>
               ) : (
-                <div className="bg-black">
-                  <VideoPlayer
-                    src={`http://localhost:8000/media/${playingComercial.ruta_proxy}`}
-                    poster={playingComercial.thumbnail ? `http://localhost:8000/media/${playingComercial.thumbnail}` : undefined}
-                  />
-                </div>
+                <>
+                  <div className="bg-black relative aspect-video">
+                    <VideoPlayer
+                      src={`http://localhost:8000/media/${playingComercial.ruta_proxy}`}
+                      poster={playingComercial.thumbnail ? `http://localhost:8000/media/${playingComercial.thumbnail}` : undefined}
+                      showSafeAction={showSafeAction}
+                      showSafeTitle={showSafeTitle}
+                      className="w-full h-full"
+                    />
+                  </div>
+                  {/* Acciones rápidas para video */}
+                  <div className="bg-white px-4 py-2 border-t border-slate-200 flex justify-end gap-2">
+                    <button
+                      onClick={() => setEncodingComercial(playingComercial)}
+                      className="px-3 py-1.5 bg-yellow-500 hover:bg-yellow-600 text-white rounded font-semibold text-sm"
+                    >
+                      Encode
+                    </button>
+                  </div>
+                </>
               )
             }
 
             {/* Info compacta y elegante */}
-            <div className="bg-gradient-to-b from-gray-900 to-gray-950 px-5 py-3 rounded-b-lg border-t border-gray-800">
-              <div className="grid grid-cols-3 gap-x-6 gap-y-2 text-xs">
+            <div className="bg-white px-5 py-3 rounded-b-lg border-t border-slate-200 shadow-sm">
+              <div className="grid grid-cols-3 gap-x-6 gap-y-2 text-xs text-slate-800">
                 {playingComercial.pizarra?.cliente && (
                   <div className="flex flex-col">
-                    <span className="text-gray-500 uppercase text-[10px] font-medium tracking-wide mb-0.5">Cliente</span>
-                    <span className="text-gray-200 font-medium truncate">{playingComercial.pizarra.cliente}</span>
+                    <span className="text-slate-500 uppercase text-[10px] font-medium tracking-wide mb-0.5">Cliente</span>
+                    <span className="text-slate-900 font-medium truncate">{playingComercial.pizarra.cliente}</span>
                   </div>
                 )}
                 {playingComercial.pizarra?.agencia && (
                   <div className="flex flex-col">
-                    <span className="text-gray-500 uppercase text-[10px] font-medium tracking-wide mb-0.5">Agencia</span>
-                    <span className="text-gray-200 font-medium truncate">{playingComercial.pizarra.agencia}</span>
+                    <span className="text-slate-500 uppercase text-[10px] font-medium tracking-wide mb-0.5">Agencia</span>
+                    <span className="text-slate-900 font-medium truncate">{playingComercial.pizarra.agencia}</span>
                   </div>
                 )}
                 {playingComercial.pizarra?.producto && (
                   <div className="flex flex-col">
-                    <span className="text-gray-500 uppercase text-[10px] font-medium tracking-wide mb-0.5">Producto</span>
-                    <span className="text-gray-200 font-medium truncate">{playingComercial.pizarra.producto}</span>
+                    <span className="text-slate-500 uppercase text-[10px] font-medium tracking-wide mb-0.5">Producto</span>
+                    <span className="text-slate-900 font-medium truncate">{playingComercial.pizarra.producto}</span>
                   </div>
                 )}
                 {playingComercial.pizarra?.version && (
                   <div className="flex flex-col">
-                    <span className="text-gray-500 uppercase text-[10px] font-medium tracking-wide mb-0.5">Versión</span>
-                    <span className="text-gray-200 font-medium truncate">{playingComercial.pizarra.version}</span>
+                    <span className="text-slate-500 uppercase text-[10px] font-medium tracking-wide mb-0.5">Versión</span>
+                    <span className="text-slate-900 font-medium truncate">{playingComercial.pizarra.version}</span>
                   </div>
                 )}
                 {playingComercial.pizarra?.duracion && (
                   <div className="flex flex-col">
-                    <span className="text-gray-500 uppercase text-[10px] font-medium tracking-wide mb-0.5">Duración</span>
-                    <span className="text-gray-200 font-medium">{playingComercial.pizarra.duracion}</span>
+                    <span className="text-slate-500 uppercase text-[10px] font-medium tracking-wide mb-0.5">Duración</span>
+                    <span className="text-slate-900 font-medium">{playingComercial.pizarra.duracion}</span>
                   </div>
                 )}
                 <div className="flex flex-col">
-                  <span className="text-gray-500 uppercase text-[10px] font-medium tracking-wide mb-0.5">Fecha</span>
-                  <span className="text-gray-200 font-medium">
+                  <span className="text-slate-500 uppercase text-[10px] font-medium tracking-wide mb-0.5">Fecha</span>
+                  <span className="text-slate-900 font-medium">
                     {new Date(playingComercial.fecha_subida).toLocaleDateString('es-MX', { 
                       day: 'numeric', 
                       month: 'short', 
@@ -1297,6 +1331,20 @@ function ComercialesManager() {
                         {/* Actions */}
                         <td className="px-4 py-3">
                           <div className="flex justify-end space-x-1">
+                            {/* Encode (video) */}
+                            <div className="relative group">
+                              <button
+                                onClick={() => setEncodingComercial(item.data)}
+                                className="p-1.5 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition-colors"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                  <path d="M480-800q-83 0-156 31.5T197-682q-55 55-86.5 128T79-398h86q0-130 92.5-222.5T480-713v-87Zm0 640q83 0 156-31.5T763-278q55-55 86.5-128T881-562h-86q0 130-92.5 222.5T480-247v87Zm0-480q-66 0-113 47t-47 113q0 66 47 113t113 47q66 0 113-47t47-113q0-66-47-113t-113-47Z"/>
+                                </svg>
+                              </button>
+                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                Encode
+                              </div>
+                            </div>
                             <div className="relative group">
                               <button
                                 onClick={() => setEditingComercial(item.data)}
@@ -1667,46 +1715,23 @@ function ComercialesManager() {
                                   </>
                                 ) : (
                                   <>
-                                    {/* Botón Reprocess para videos (transcodificación estándar) */}
+                                    {/* Botón Encode para videos (FFmpeg presets) */}
                                     <button 
-                                      onClick={async () => {
-                                        try {
-                                          await axios.post(`http://localhost:8000/api/broadcasts/${item.data.id}/reprocess/`);
-                                          alert('✓ Transcodificación encolada');
-                                          fetchComerciales();
-                                        } catch (e) { 
-                                          alert('⚠️ Error al iniciar transcodificación'); 
-                                          console.error(e);
-                                        }
-                                      }}
-                                      className="p-1.5 bg-green-500 text-white rounded hover:bg-green-600 transition-colors"
+                                      onClick={() => setEncodingComercial(item.data)}
+                                      className="p-1.5 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition-colors"
                                     >
                                       <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
                                         <path d="M480-800q-83 0-156 31.5T197-682q-55 55-86.5 128T79-398h86q0-130 92.5-222.5T480-713v-87Zm0 640q83 0 156-31.5T763-278q55-55 86.5-128T881-562h-86q0 130-92.5 222.5T480-247v87Zm0-480q-66 0-113 47t-47 113q0 66 47 113t113 47q66 0 113-47t47-113q0-66-47-113t-113-47Z"/>
                                       </svg>
                                     </button>
                                     <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
-                                      Transcode
+                                      Encode
                                     </div>
                                   </>
                                 )}
                               </div>
                             )}
-                            {item.data.estado_transcodificacion === 'COMPLETADO' && item.data.modulo_info?.tipo !== 'audio' && item.data.ruta_h264 && (
-                              <div className="relative group">
-                                <button 
-                                  onClick={() => handleDownload(item.data, 'h264')}
-                                  className="p-1.5 bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors"
-                                >
-                                  <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                                    <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
-                                  </svg>
-                                </button>
-                                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
-                                  Download H.264
-                                </div>
-                              </div>
-                            )}
+                            {/* H.264 download removed: restrict downloads to Original or explicit Encodes */}
                             {item.data.estado_transcodificacion === 'COMPLETADO' && item.data.modulo_info?.tipo === 'audio' && (item.data.ruta_mp3 || (item.data.ruta_h264 && item.data.ruta_h264.endsWith('.mp3'))) && (
                               <div className="relative group">
                                 <button 
@@ -1921,21 +1946,7 @@ function ComercialesManager() {
                               )}
                             </div>
                           )}
-                          {comercial.estado_transcodificacion === 'COMPLETADO' && comercial.modulo_info?.tipo !== 'audio' && comercial.ruta_h264 && (
-                            <div className="relative group">
-                              <button 
-                                onClick={() => handleDownload(comercial, 'h264')}
-                                className="p-1 text-orange-600 hover:bg-orange-50 rounded transition-colors" 
-                              >
-                                <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
-                                  <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
-                                </svg>
-                              </button>
-                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
-                                Download H.264
-                              </div>
-                            </div>
-                          )}
+                          {/* H.264 download removed: restrict downloads to Original or explicit Encodes */}
                           {comercial.estado_transcodificacion === 'COMPLETADO' && comercial.modulo_info?.tipo === 'audio' && (comercial.ruta_mp3 || (comercial.ruta_h264 && comercial.ruta_h264.endsWith('.mp3'))) && (
                             <div className="relative group">
                               <button 

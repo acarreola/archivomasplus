@@ -475,6 +475,40 @@ class BroadcastViewSet(viewsets.ModelViewSet):
             'message': f'{count} processes cancelled',
             'updated_count': count
         })
+
+    @action(detail=False, methods=['post'], url_path='retry_failed')
+    def retry_failed(self, request):
+        """
+        Reencola todos los broadcasts en estado FALLIDO/ERROR para transcodificación.
+        Opcionalmente filtra por repositorio (repositorio_id) o directorio (directorio_id).
+        """
+        repositorio_id = request.data.get('repositorio_id') or request.query_params.get('repositorio_id')
+        directorio_id = request.data.get('directorio_id') or request.query_params.get('directorio_id')
+
+        qs = Broadcast.objects.filter(estado_transcodificacion__in=['ERROR', 'FALLIDO'])
+        if repositorio_id:
+            qs = qs.filter(repositorio_id=repositorio_id)
+        if directorio_id:
+            qs = qs.filter(directorio_id=directorio_id)
+
+        total = qs.count()
+        if total == 0:
+            return Response({'message': 'No failed broadcasts to retry', 'queued': 0})
+
+        queued = 0
+        for b in qs:
+            # Debe tener archivo original configurado
+            if not b.archivo_original:
+                continue
+            b.estado_transcodificacion = 'PROCESANDO'
+            b.last_error = None
+            b.save(update_fields=['estado_transcodificacion', 'last_error'])
+            # Disparar tarea
+            transcode_video.delay(str(b.id))
+            queued += 1
+
+        logger.info(f"🔁 Retry failed: queued {queued}/{total} broadcasts")
+        return Response({'message': 'Retry enqueued', 'queued': queued, 'total_failed': total})
     
     @action(detail=False, methods=['post'], url_path='match_source_files')
     def match_source_files(self, request):

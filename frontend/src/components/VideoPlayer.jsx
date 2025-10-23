@@ -1,8 +1,7 @@
 import { useEffect, useRef } from 'react';
 import videojs from 'video.js';
-import 'video.js/dist/video-js.css';
 
-export default function VideoPlayer({ src, poster, onPlay, className = '' }) {
+export default function VideoPlayer({ src, poster, onPlay, className = '', showSafeAction = false, showSafeTitle = false }) {
   const videoRef = useRef(null);
   const playerRef = useRef(null);
 
@@ -76,9 +75,16 @@ export default function VideoPlayer({ src, poster, onPlay, className = '' }) {
     <div className={`video-js-wrapper ${className}`} data-vjs-player>
       <video
         ref={videoRef}
-        className="video-js vjs-big-play-centered vjs-theme-archivo"
+        className="video-js vjs-big-play-centered"
         playsInline
       />
+      {/* Overlays de Safety - siempre visibles cuando showSafeAction/showSafeTitle son true */}
+      {showSafeAction && (
+        <div className="safe-rect safe-action" aria-label="Action Safe" />
+      )}
+      {showSafeTitle && (
+        <div className="safe-rect safe-title" aria-label="Title Safe" />
+      )}
     </div>
   );
 }
