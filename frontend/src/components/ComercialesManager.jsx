@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import axios from '../utils/axios';
+import axios, { getMediaUrl, getApiUrl } from '../utils/axios';
 import UploadForm from '../UploadForm';
 import MultiFileUploader from './MultiFileUploader';
 import ComercialEditModal from './ComercialEditModal';
@@ -104,7 +104,7 @@ function ComercialesManager() {
 
   const fetchCurrentUser = () => {
     // console.info('📡 Fetching current user...');
-    axios.get('http://localhost:8000/api/auth/me/')
+    axios.get('/api/auth/me/')
       .then(res => {
         setCurrentUser(res.data);
       })
@@ -115,7 +115,7 @@ function ComercialesManager() {
   };
 
   const fetchRepositorios = () => {
-    axios.get('http://localhost:8000/api/repositorios/')
+    axios.get('/api/repositorios/')
       .then(res => {
         const activos = res.data.filter(r => r.activo);
         const ordenados = activos.sort((a, b) => a.nombre.localeCompare(b.nombre));
@@ -144,7 +144,7 @@ function ComercialesManager() {
     // Determinar el endpoint según el tipo de módulo
     const currentModuloInfo = selectedModulo ? getSelectedRepoModulos().find(m => m.id === selectedModulo) : null;
     const isAudioModule = currentModuloInfo?.tipo === 'audio';
-    const baseEndpoint = isAudioModule ? 'http://localhost:8000/api/audios/?' : 'http://localhost:8000/api/broadcasts/?';
+  const baseEndpoint = isAudioModule ? '/api/audios/?' : '/api/broadcasts/?';
     
     let url = baseEndpoint;
     const params = [];
@@ -198,7 +198,7 @@ function ComercialesManager() {
       return;
     }
     
-    let url = `http://localhost:8000/api/directorios/?repositorio=${selectedRepo}`;
+    let url = `/api/directorios/?repositorio=${selectedRepo}`;
     if (selectedModulo) {
       url += `&modulo=${selectedModulo}`;
     }
@@ -225,7 +225,7 @@ function ComercialesManager() {
 
   const handleDeleteDirectory = (directorioId) => {
     if (window.confirm('Are you sure you want to delete this directory? Files inside will remain but be moved out of the directory.')) {
-      axios.delete(`http://localhost:8000/api/directorios/${directorioId}/`)
+      axios.delete(`/api/directorios/${directorioId}/`)
         .then(() => {
           fetchDirectorios();
           fetchComerciales();
@@ -253,7 +253,7 @@ function ComercialesManager() {
       // Determinar el endpoint según el tipo de módulo
       const currentModuloInfo = selectedModulo ? getSelectedRepoModulos().find(m => m.id === selectedModulo) : null;
       const isAudioModule = currentModuloInfo?.tipo === 'audio';
-      const baseEndpoint = isAudioModule ? 'http://localhost:8000/api/audios/' : 'http://localhost:8000/api/broadcasts/';
+  const baseEndpoint = isAudioModule ? '/api/audios/' : '/api/broadcasts/';
       const deleteUrl = `${baseEndpoint}${comercialId}/`;
       
       console.log('DELETE URL:', deleteUrl);
@@ -289,9 +289,9 @@ function ComercialesManager() {
     
     if (type === 'original') {
       // archivo_original ya viene con /media/ incluido desde el serializer
-      const archivoUrl = comercial.archivo_original.startsWith('http') 
-        ? comercial.archivo_original 
-        : `http://localhost:8000${comercial.archivo_original.startsWith('/') ? '' : '/'}${comercial.archivo_original}`;
+      const archivoUrl = comercial.archivo_original?.startsWith('http')
+        ? comercial.archivo_original
+        : getMediaUrl(comercial.archivo_original);
       url = archivoUrl;
       
       // Construir nombre: CLAVE_NOMBREORIGINAL.mov (siempre .mov para originales)
@@ -302,13 +302,13 @@ function ComercialesManager() {
       
       filename = `${clave}_${nombreOriginal}.mov`;
     } else if (type === 'h264') {
-      url = `http://localhost:8000/media/${comercial.ruta_h264}`;
+      url = getMediaUrl(comercial.ruta_h264);
       // Construir nombre: CLAVE_NOMBRE.mp4 (siempre .mp4 para H.264)
       const clave = comercial.repositorio_clave || comercial.repositorio_folio || 'XXX';
       const nombre = comercial.pizarra?.producto || 'comercial';
       filename = `${clave}_${nombre}.mp4`;
     } else if (type === 'h265' || type === 'proxy') {
-      url = `http://localhost:8000/media/${comercial.ruta_proxy}`;
+      url = getMediaUrl(comercial.ruta_proxy);
       filename = `${comercial.pizarra?.producto || 'comercial'}_h265.mp4`;
     } else if (type === 'mp3') {
       const mp3Path = comercial.ruta_mp3 || (comercial.ruta_h264 && comercial.ruta_h264.endsWith('.mp3') ? comercial.ruta_h264 : null);
@@ -316,7 +316,7 @@ function ComercialesManager() {
         alert('No hay archivo MP3 disponible');
         return;
       }
-      url = `http://localhost:8000/media/${mp3Path}`;
+    url = getMediaUrl(mp3Path);
       const clave = comercial.repositorio_clave || comercial.repositorio_folio || 'AUDIO';
       const base = (comercial.pizarra?.producto || comercial.nombre_original || 'audio').toString().replace(/\.[^/.]+$/, '');
       filename = `${clave}_${base}.mp3`;
@@ -363,6 +363,9 @@ function ComercialesManager() {
     if (v === '1') return 'Master';
     if (v === '2') return 'Genérico';
     if (v === '3') return 'Intergenérico';
+    if (v === '4') return 'Intergenérico con logos';
+    if (v === '5') return 'Subtitulado';
+    if (v === '6') return 'Pista';
     // Fallback: some records might use "formato" or already have a label
     if (pizarra.formato && pizarra.formato.trim()) return pizarra.formato;
     if (pizarra.type && pizarra.type.trim()) return pizarra.type;
@@ -583,13 +586,13 @@ function ComercialesManager() {
             { (playingComercial.modulo_info?.tipo === 'audio' || playingComercial.ruta_mp3 || (playingComercial.ruta_h264 && playingComercial.ruta_h264.endsWith('.mp3')))
               ? (
                 <div className="bg-gray-900 p-6">
-                  <AudioWavePlayer url={`http://localhost:8000/media/${playingComercial.ruta_h264 || playingComercial.ruta_mp3}`} />
+                  <AudioWavePlayer url={getMediaUrl(playingComercial.ruta_h264 || playingComercial.ruta_mp3)} />
                   <div className="mt-4 flex flex-wrap gap-2">
                     <button onClick={() => setEditingComercial(playingComercial)} className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-semibold">Edit</button>
                     <button onClick={() => setSharingComercial(playingComercial)} className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded font-semibold">Share</button>
                     <button onClick={async () => {
                       try {
-                        await axios.post(`http://localhost:8000/api/audios/${playingComercial.id}/reprocess/`);
+                        await axios.post(`/api/audios/${playingComercial.id}/reprocess/`);
                         alert('✓ Encode encolado');
                       } catch (e) { alert('⚠️ Error al iniciar encode'); }
                     }} className="px-3 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded font-semibold">Encode</button>
@@ -601,8 +604,8 @@ function ComercialesManager() {
                 <>
                   <div className="bg-black relative aspect-video">
                     <VideoPlayer
-                      src={`http://localhost:8000/media/${playingComercial.ruta_proxy}`}
-                      poster={playingComercial.thumbnail ? `http://localhost:8000/media/${playingComercial.thumbnail}` : undefined}
+                      src={getMediaUrl(playingComercial.ruta_proxy)}
+                      poster={playingComercial.thumbnail ? getMediaUrl(playingComercial.thumbnail) : undefined}
                       showSafeAction={showSafeAction}
                       showSafeTitle={showSafeTitle}
                       className="w-full h-full"
@@ -1167,7 +1170,7 @@ function ComercialesManager() {
                             {/* Directory name */}
                             <div>
                               <span className="text-base font-semibold text-gray-900">{item.data.nombre}</span>
-                              <span className="ml-2 text-sm text-gray-500">({item.data.broadcasts_count || 0} files)</span>
+                              <span className="ml-2 text-sm text-gray-500">({item.data.broadcasts_count || 0} commercials)</span>
                             </div>
                           </div>
                         </td>
@@ -1228,7 +1231,7 @@ function ComercialesManager() {
                                       // Intento de fallback a backend
                                       if (!e.currentTarget.dataset.fallbackTried) {
                                         e.currentTarget.dataset.fallbackTried = '1';
-                                        e.currentTarget.src = 'http://localhost:8000/icons/audio.svg';
+                                        e.currentTarget.src = getApiUrl('/icons/audio.svg');
                                         return;
                                       }
                                       // Fallback final: ocultar imagen y mostrar SVG de respaldo
@@ -1394,7 +1397,7 @@ function ComercialesManager() {
                             <svg className="w-7 h-7 text-blue-500" fill="currentColor" viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
                             <div>
                               <div className="text-base font-semibold text-gray-900">{item.data.nombre}</div>
-                              <div className="text-xs text-gray-500">{item.data.comerciales_count || 0} files</div>
+                              <div className="text-xs text-gray-500">{item.data.broadcasts_count || 0} commercials</div>
                             </div>
                           </div>
                           <div className="flex items-center space-x-2">
@@ -1439,7 +1442,7 @@ function ComercialesManager() {
                               {inlinePlayingId === item.data.id ? (
                                 <div className="mt-3">
                                   <AudioWavePlayer 
-                                    url={`http://localhost:8000/media/${item.data.ruta_h264 || item.data.ruta_mp3}`}
+                                    url={getMediaUrl(item.data.ruta_h264 || item.data.ruta_mp3)}
                                     height={28}
                                   />
                                 </div>
@@ -1525,7 +1528,7 @@ function ComercialesManager() {
                           <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-24">TIME</th>
                           <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">TYPE</th>
                           <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-36">DATE</th>
-                          <th className="px-4 py-3 text-right text-xs font-bold text-gray-600 uppercase w-80">ACTIONS</th>
+                          <th className="px-4 py-3 text-right text-xs font-bold text-gray-600 uppercase w-24">ACTIONS</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
@@ -1551,7 +1554,7 @@ function ComercialesManager() {
                                   {/* Nombre del directorio */}
                                   <div>
                                     <span className="text-base font-semibold text-gray-900">{item.data.nombre}</span>
-                                    <span className="ml-2 text-sm text-gray-500">({item.data.comerciales_count || 0} {t('repository.count') || 'archivos'})</span>
+                                    <span className="ml-2 text-sm text-gray-500">({item.data.broadcasts_count || 0} commercials)</span>
                                   </div>
                                 </div>
                               </td>
@@ -1699,7 +1702,7 @@ function ComercialesManager() {
                                     <button 
                                       onClick={async () => {
                                         try {
-                                          await axios.post(`http://localhost:8000/api/audios/${item.data.id}/reprocess/`);
+                                          await axios.post(`/api/audios/${item.data.id}/reprocess/`);
                                           alert('✓ Reproceso de audio encolado');
                                         } catch (e) { alert('⚠️ Error al iniciar reproceso'); }
                                       }}
@@ -1788,8 +1791,7 @@ function ComercialesManager() {
             // Vista Grid con Thumbnails
             <div className="p-6">
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                {displayItems.filter(item => item.type === 'comercial').map(item => {
-                  const comercial = item.data;
+                {comercialesFiltrados.map(comercial => {
                   return (
                   <div 
                     key={comercial.id}
@@ -1814,7 +1816,7 @@ function ComercialesManager() {
                             e.target.currentTime = 0;
                           }}
                         >
-                          <source src={`http://localhost:8000${comercial.ruta_proxy}`} type="video/mp4" />
+                          <source src={getMediaUrl(comercial.ruta_proxy)} type="video/mp4" />
                         </video>
                       ) : (
                         <div className="text-gray-500 text-center p-4">
@@ -1905,7 +1907,7 @@ function ComercialesManager() {
                                   <button 
                                     onClick={async () => {
                                       try {
-                                        await axios.post(`http://localhost:8000/api/audios/${comercial.id}/reprocess/`);
+                                        await axios.post(`/api/audios/${comercial.id}/reprocess/`);
                                         alert('✓ Reproceso de audio encolado');
                                       } catch (e) { alert('⚠️ Error al iniciar reproceso'); }
                                     }}
@@ -1925,7 +1927,7 @@ function ComercialesManager() {
                                   <button 
                                     onClick={async () => {
                                       try {
-                                        await axios.post(`http://localhost:8000/api/broadcasts/${comercial.id}/reprocess/`);
+                                        await axios.post(`/api/broadcasts/${comercial.id}/reprocess/`);
                                         alert('✓ Transcodificación encolada');
                                         fetchComerciales();
                                       } catch (e) { 

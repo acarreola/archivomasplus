@@ -26,12 +26,26 @@ def login_view(request):
     # Accept both 'email' and 'username' for backwards compatibility
     email = request.data.get('email') or request.data.get('username')
     password = request.data.get('password')
+    remember_me = request.data.get('remember_me', False)
     
     if not email or not password:
         return Response({
             'success': False,
-            'message': 'Email and password are required'
+            'message': 'Email y contraseña son requeridos'
         }, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Limitar intentos de login para prevenir ataques de fuerza bruta
+    # Guardar IP y número de intentos en cache (Redis)
+    from django.core.cache import cache
+    ip_address = request.META.get('REMOTE_ADDR')
+    cache_key = f'login_attempts_{ip_address}'
+    attempts = cache.get(cache_key, 0)
+    
+    if attempts >= 5:
+        return Response({
+            'success': False,
+            'message': 'Demasiados intentos fallidos. Intenta de nuevo en 15 minutos.'
+        }, status=status.HTTP_429_TOO_MANY_REQUESTS)
     
     # Authenticate using email (EmailBackend will handle this)
     user = authenticate(request, username=email, password=password)
@@ -40,21 +54,138 @@ def login_view(request):
         if not user.is_active:
             return Response({
                 'success': False,
-                'message': 'User account is disabled'
+                'message': 'La cuenta de usuario está deshabilitada'
             }, status=status.HTTP_403_FORBIDDEN)
         
+        # Login exitoso - resetear intentos
+        cache.delete(cache_key)
+        
+        # Login del usuario
         login(request, user)
+        
+        # Configurar duración de la sesión
+        if remember_me:
+            # Sesión de 30 días si "recordar sesión" está activado
+            request.session.set_expiry(30 * 24 * 60 * 60)
+        else:
+            # Sesión expira al cerrar el navegador
+            request.session.set_expiry(0)
+        
         serializer = UserSerializer(user)
+        
+        # Log del login exitoso
+        logger.info(f'Login exitoso: {user.email} desde IP {ip_address}')
+        
         return Response({
             'success': True,
-            'message': 'Login successful',
+            'message': 'Login exitoso',
             'user': serializer.data
         })
     else:
+        # Login fallido - incrementar contador de intentos
+        cache.set(cache_key, attempts + 1, 900)  # 15 minutos
+        
+        # Log del intento fallido
+        logger.warning(f'Intento de login fallido: {email} desde IP {ip_address}')
+        
         return Response({
             'success': False,
-            'message': 'Invalid credentials'
+            'message': 'Credenciales inválidas'
         }, status=status.HTTP_401_UNAUTHORIZED)
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def forgot_password(request):
+    """Enviar email para recuperar contraseña"""
+    email = request.data.get('email')
+    
+    if not email:
+        return Response({
+            'success': False,
+            'message': 'Email es requerido'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        user = CustomUser.objects.get(email=email)
+        
+        # Generar token de recuperación
+        from django.contrib.auth.tokens import default_token_generator
+        from django.utils.http import urlsafe_base64_encode
+        from django.utils.encoding import force_bytes
+        
+        token = default_token_generator.make_token(user)
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        
+        # Construir URL de reset (ajustar según tu configuración)
+        reset_url = f"{settings.FRONTEND_URL}/reset-password/{uid}/{token}/"
+        
+        # TODO: Enviar email (requiere configuración de email en settings)
+        # Por ahora, solo logueamos el token
+        logger.info(f'Reset password token para {email}: {reset_url}')
+        
+        # En producción, descomentar esto:
+        # from django.core.mail import send_mail
+        # send_mail(
+        #     'Recuperación de contraseña - Archivo+',
+        #     f'Haz clic en el siguiente enlace para resetear tu contraseña: {reset_url}',
+        #     settings.DEFAULT_FROM_EMAIL,
+        #     [email],
+        #     fail_silently=False,
+        # )
+        
+        return Response({
+            'success': True,
+            'message': 'Si el email existe, recibirás instrucciones para recuperar tu contraseña'
+        })
+    except CustomUser.DoesNotExist:
+        # No revelar si el email existe o no (seguridad)
+        return Response({
+            'success': True,
+            'message': 'Si el email existe, recibirás instrucciones para recuperar tu contraseña'
+        })
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def reset_password(request):
+    """Resetear contraseña con token"""
+    from django.contrib.auth.tokens import default_token_generator
+    from django.utils.http import urlsafe_base64_decode
+    from django.utils.encoding import force_str
+    
+    uid = request.data.get('uid')
+    token = request.data.get('token')
+    new_password = request.data.get('password')
+    
+    if not all([uid, token, new_password]):
+        return Response({
+            'success': False,
+            'message': 'Todos los campos son requeridos'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        user_id = force_str(urlsafe_base64_decode(uid))
+        user = CustomUser.objects.get(pk=user_id)
+        
+        if default_token_generator.check_token(user, token):
+            user.set_password(new_password)
+            user.save()
+            
+            logger.info(f'Contraseña reseteada para: {user.email}')
+            
+            return Response({
+                'success': True,
+                'message': 'Contraseña actualizada exitosamente'
+            })
+        else:
+            return Response({
+                'success': False,
+                'message': 'Token inválido o expirado'
+            }, status=status.HTTP_400_BAD_REQUEST)
+    except (CustomUser.DoesNotExist, ValueError, TypeError):
+        return Response({
+            'success': False,
+            'message': 'Token inválido'
+        }, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['POST'])
 def logout_view(request):
@@ -64,6 +195,131 @@ def logout_view(request):
         'success': True,
         'message': 'Logout exitoso'
     })
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAdminUser])
+def smtp_config(request):
+    """Obtener o actualizar configuración SMTP"""
+    import json
+    from pathlib import Path
+    
+    config_file = settings.BASE_DIR / '.env'
+    
+    if request.method == 'GET':
+        # Leer configuración actual
+        config = {
+            'email_backend': 'smtp' if settings.EMAIL_BACKEND == 'django.core.mail.backends.smtp.EmailBackend' else 'console',
+            'email_host': settings.EMAIL_HOST,
+            'email_port': str(settings.EMAIL_PORT),
+            'email_use_tls': settings.EMAIL_USE_TLS,
+            'email_host_user': settings.EMAIL_HOST_USER,
+            'email_host_password': '********' if settings.EMAIL_HOST_PASSWORD else '',  # No enviar password real
+            'default_from_email': settings.DEFAULT_FROM_EMAIL,
+        }
+        return Response(config)
+    
+    elif request.method == 'POST':
+        # Actualizar configuración
+        data = request.data
+        
+        # Preparar nuevas variables de entorno
+        env_vars = {}
+        
+        if data.get('email_backend') == 'smtp':
+            env_vars['EMAIL_BACKEND'] = 'django.core.mail.backends.smtp.EmailBackend'
+        else:
+            env_vars['EMAIL_BACKEND'] = 'django.core.mail.backends.console.EmailBackend'
+        
+        env_vars['EMAIL_HOST'] = data.get('email_host', 'smtp.gmail.com')
+        env_vars['EMAIL_PORT'] = data.get('email_port', '587')
+        env_vars['EMAIL_USE_TLS'] = 'True' if data.get('email_use_tls', True) else 'False'
+        env_vars['EMAIL_HOST_USER'] = data.get('email_host_user', '')
+        
+        # Solo actualizar password si se envió uno nuevo (no ********)
+        if data.get('email_host_password') and data.get('email_host_password') != '********':
+            env_vars['EMAIL_HOST_PASSWORD'] = data.get('email_host_password')
+        
+        env_vars['DEFAULT_FROM_EMAIL'] = data.get('default_from_email', 'noreply@archivoplus.local')
+        
+        # Leer .env existente
+        env_content = {}
+        if config_file.exists():
+            with open(config_file, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, value = line.split('=', 1)
+                        env_content[key.strip()] = value.strip()
+        
+        # Actualizar con nuevas variables
+        env_content.update(env_vars)
+        
+        # Escribir .env actualizado
+        with open(config_file, 'w') as f:
+            f.write('# Archivo+ v3.1 - Environment Variables\n')
+            f.write('# Última actualización: ' + timezone.now().strftime('%Y-%m-%d %H:%M:%S') + '\n\n')
+            for key, value in sorted(env_content.items()):
+                f.write(f'{key}={value}\n')
+        
+        logger.info(f'Configuración SMTP actualizada por {request.user.email}')
+        
+        return Response({
+            'success': True,
+            'message': 'Configuración guardada. Reinicia el servidor para aplicar cambios.'
+        })
+
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def smtp_test(request):
+    """Enviar email de prueba con la configuración actual"""
+    from django.core.mail import send_mail
+    
+    email = request.data.get('email')
+    config = request.data.get('config', {})
+    
+    if not email:
+        return Response({
+            'success': False,
+            'message': 'Email es requerido'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        # Enviar email de prueba
+        send_mail(
+            'Prueba de configuración SMTP - Archivo+',
+            f'''
+            Hola,
+            
+            Este es un email de prueba para verificar la configuración SMTP de Archivo+ v3.1.
+            
+            Si recibiste este mensaje, la configuración está funcionando correctamente.
+            
+            Configuración actual:
+            - Host: {settings.EMAIL_HOST}
+            - Puerto: {settings.EMAIL_PORT}
+            - TLS: {settings.EMAIL_USE_TLS}
+            - Usuario: {settings.EMAIL_HOST_USER}
+            
+            Saludos,
+            Archivo+ v3.1 - Broadcast Asset Management
+            ''',
+            settings.DEFAULT_FROM_EMAIL,
+            [email],
+            fail_silently=False,
+        )
+        
+        logger.info(f'Email de prueba enviado a {email} por {request.user.email}')
+        
+        return Response({
+            'success': True,
+            'message': f'Email de prueba enviado exitosamente a {email}'
+        })
+    except Exception as e:
+        logger.error(f'Error enviando email de prueba: {str(e)}')
+        return Response({
+            'success': False,
+            'message': f'Error al enviar email: {str(e)}'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['GET'])
 @permission_classes([AllowAny])

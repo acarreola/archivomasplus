@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom';
 import Login from './components/Login';
+import ResetPassword from './components/ResetPassword';
 import RequireAuth from './components/RequireAuth';
 import Navbar from './components/Navbar';
 import RepositoriosManager from './components/RepositoriosManager';
@@ -13,6 +14,7 @@ import SystemInfoManager from './components/SystemInfoManager';
 import VinculacionesManager from './components/VinculacionesManager';
 import HistoryManager from './components/HistoryManager';
 import SharedPlayer from './components/SharedPlayer';
+import SMTPConfigManager from './components/SMTPConfigManager';
 
 // Admin area component
 function AdminArea() {
@@ -34,6 +36,8 @@ function AdminArea() {
         return <VinculacionesManager />;
       case 'history':
         return <HistoryManager />;
+      case 'smtp':
+        return <SMTPConfigManager />;
       default:
         return <RepositoriosManager />;
     }
@@ -117,6 +121,16 @@ function AdminArea() {
                 >
                   History
                 </button>
+                <button 
+                  onClick={() => setActiveTab('smtp')}
+                  className={`px-6 py-4 text-sm font-medium whitespace-nowrap ${
+                    activeTab === 'smtp' 
+                      ? 'text-blue-600 border-b-2 border-blue-600' 
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                >
+                  SMTP Config
+                </button>
               </nav>
             </div>
             <div className="flex-1 overflow-auto">
@@ -134,6 +148,7 @@ function App() {
     // Public routes
     { path: '/shared/:linkId', element: <SharedPlayer /> },
     { path: '/login', element: <Login /> },
+    { path: '/reset-password/:uid/:token', element: <ResetPassword /> },
 
     // Protected home route
     {

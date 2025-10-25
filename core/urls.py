@@ -3,7 +3,8 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     RepositorioViewSet, AgenciaViewSet, BroadcastViewSet, AudioViewSet,
     UserViewSet, DirectorioViewSet, RepositorioPermisoViewSet, ModuloViewSet,
-    PerfilViewSet, SistemaInformacionViewSet, current_user, shared_link_public, login_view, logout_view
+    PerfilViewSet, SistemaInformacionViewSet, current_user, shared_link_public, 
+    login_view, logout_view, forgot_password, reset_password, smtp_config, smtp_test
 )
 from . import csv_views
 
@@ -24,6 +25,10 @@ urlpatterns = [
     path('auth/me/', current_user, name='current-user'),
     path('auth/login/', login_view, name='login'),
     path('auth/logout/', logout_view, name='logout'),
+    path('auth/forgot-password/', forgot_password, name='forgot-password'),
+    path('auth/reset-password/', reset_password, name='reset-password'),
+    path('smtp-config/', smtp_config, name='smtp-config'),
+    path('smtp-config/test/', smtp_test, name='smtp-test'),
     path('shared/<uuid:link_id>/', shared_link_public, name='shared-link-public'),
     
     # CSV endpoints

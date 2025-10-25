@@ -1,4 +1,5 @@
 import * as React from 'react';
+import axios from '../utils/axios';
 
 // Use a global singleton to avoid duplicate contexts on HMR or multiple loads
 const getGlobalThis = () => (typeof window !== 'undefined' ? window : globalThis);
@@ -18,20 +19,11 @@ export function AuthProvider({ children }) {
 
   const checkAuth = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/auth/me/', {
-        credentials: 'include',
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        // Check if the response indicates authenticated user
-        if (data.authenticated === false) {
-          setUser(null);
-        } else {
-          setUser(data);
-        }
-      } else {
+      const { data } = await axios.get('/api/auth/me/');
+      if (data && data.authenticated === false) {
         setUser(null);
+      } else {
+        setUser(data);
       }
     } catch (error) {
       console.error('Auth check failed:', error);
@@ -47,10 +39,7 @@ export function AuthProvider({ children }) {
 
   const logout = async () => {
     try {
-      await fetch('http://localhost:8000/api/auth/logout/', {
-        method: 'POST',
-        credentials: 'include',
-      });
+      await axios.post('/api/auth/logout/');
     } catch (error) {
       console.error('Logout error:', error);
     }

@@ -135,7 +135,27 @@ class DirectorioSerializer(serializers.ModelSerializer):
         fields = ['id', 'nombre', 'repositorio', 'repositorio_nombre', 'modulo', 'parent', 'id_dir', 'fecha_creacion', 'broadcasts_count']
     
     def get_broadcasts_count(self, obj):
-        return obj.broadcasts.count()
+        """
+        Return total broadcasts contained in this directory including all nested subdirectories.
+        Falls back to direct count if no children.
+        """
+        # Collect all descendant directory IDs (BFS traversal)
+        try:
+            from .models import Directorio, Broadcast
+            ids = [obj.id]
+            queue = [obj.id]
+            while queue:
+                children = list(
+                    Directorio.objects.filter(parent__in=queue).values_list('id', flat=True)
+                )
+                queue = children
+                ids.extend(children)
+
+            # Count all broadcasts that belong to any of these directories
+            return Broadcast.objects.filter(directorio_id__in=ids).count()
+        except Exception:
+            # Safe fallback to direct related count
+            return obj.broadcasts.count()
 
 class AgenciaSerializer(serializers.ModelSerializer):
     class Meta:

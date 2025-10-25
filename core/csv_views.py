@@ -55,7 +55,7 @@ def export_broadcasts_csv(request):
         'Product',               # product
         'Version',               # version
         'Duration',              # time/duration
-        'Type',                  # 1/2/3 = master/generic/intergeneric
+        'Type',                  # 1=Master, 2=Generico, 3=Intergenerico, 4=Intergenerico con logos, 5=Subtitulado, 6=Pista
         'Expedition',            # date
         # Extras
         'id_uuid',               # UUID original
@@ -195,7 +195,7 @@ def compare_csv_structure(request):
         'duration': 'Duración (ej: 20 SEG, 30 SEG, 60 SEG)',
         'expedition': 'Fecha de expedición (YYYY-MM-DD)',
         'agency': 'Nombre de la agencia',
-        'vtype': 'Tipo de video (1=master, 2=generico, 3=intergenerico)',
+        'vtype': 'Tipo de video (1=Master, 2=Generico, 3=Intergenerico, 4=Intergenerico con logos, 5=Subtitulado, 6=Pista)',
     }
     
     our_structure = {
@@ -275,7 +275,7 @@ def compare_csv_structure(request):
             'your_field': 'vtype',
             'our_field': 'pizarra.vtype',
             'mapping': 'pizarra["vtype"] = vtype',
-            'notes': '1=master, 2=generico, 3=intergenerico. Campo JSON dentro de pizarra'
+            'notes': '1=Master, 2=Generico, 3=Intergenerico, 4=Intergenerico con logos, 5=Subtitulado, 6=Pista. Campo JSON dentro de pizarra'
         },
     }
     

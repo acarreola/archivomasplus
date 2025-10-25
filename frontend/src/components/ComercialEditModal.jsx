@@ -417,6 +417,9 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
                       <option value="Master">Master</option>
                       <option value="Generico">Generico</option>
                       <option value="Intergenerico">Intergenerico</option>
+                      <option value="Intergenerico con logos">Intergenerico con logos</option>
+                      <option value="Subtitulado">Subtitulado</option>
+                      <option value="Pista">Pista</option>
                     </select>
                   </div>
 
