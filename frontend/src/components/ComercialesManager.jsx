@@ -102,6 +102,19 @@ function ComercialesManager() {
     }
   }, [comerciales]);
 
+  // Helper function to get modules
+  const getSelectedRepoModulos = () => {
+    if (!selectedRepo) return [];
+    const repo = repositorios.find(r => r.id === selectedRepo);
+    return repo?.modulos_detalle || [];
+  };
+
+  // Derived state: Check if current module is audio type
+  const currentModuloInfo = selectedModulo 
+    ? getSelectedRepoModulos().find(m => m.id === selectedModulo)
+    : null;
+  const isAudioModule = currentModuloInfo?.tipo === 'audio';
+
   const fetchCurrentUser = () => {
     // console.info('📡 Fetching current user...');
     axios.get('/api/auth/me/')
@@ -235,7 +248,7 @@ function ComercialesManager() {
         })
         .catch(err => {
           console.error('Error al eliminar directorio:', err);
-          alert('Error al eliminar el directorio. Puede que contenga subdirectorios.');
+          alert('Cannot delete directory. It may contain subdirectories.');
         });
     }
   };
@@ -338,7 +351,7 @@ function ComercialesManager() {
       console.log(`✅ Descarga iniciada: ${filename}`);
     } catch (error) {
       console.error('Error al descargar:', error);
-      alert('⚠️ Error al descargar el archivo. Por favor intenta de nuevo.');
+      alert('⚠️ Error downloading file. Please try again.');
     }
   };
 
@@ -406,13 +419,6 @@ function ComercialesManager() {
     const secs = item?.metadata?.duracion;
     if (typeof secs === 'number') return formatSecondsToMSS(secs);
     return item?.pizarra?.duracion || '-';
-  };
-
-  // Helper para obtener módulos del repositorio seleccionado
-  const getSelectedRepoModulos = () => {
-    if (!selectedRepo) return [];
-    const repo = repositorios.find(r => r.id === selectedRepo);
-    return repo?.modulos_detalle || [];
   };
 
   // Helper para obtener icono del módulo
@@ -611,15 +617,6 @@ function ComercialesManager() {
                       className="w-full h-full"
                     />
                   </div>
-                  {/* Acciones rápidas para video */}
-                  <div className="bg-white px-4 py-2 border-t border-slate-200 flex justify-end gap-2">
-                    <button
-                      onClick={() => setEncodingComercial(playingComercial)}
-                      className="px-3 py-1.5 bg-yellow-500 hover:bg-yellow-600 text-white rounded font-semibold text-sm"
-                    >
-                      Encode
-                    </button>
-                  </div>
                 </>
               )
             }
@@ -660,11 +657,23 @@ function ComercialesManager() {
                 <div className="flex flex-col">
                   <span className="text-slate-500 uppercase text-[10px] font-medium tracking-wide mb-0.5">Fecha</span>
                   <span className="text-slate-900 font-medium">
-                    {new Date(playingComercial.fecha_subida).toLocaleDateString('es-MX', { 
-                      day: 'numeric', 
-                      month: 'short', 
-                      year: 'numeric' 
-                    })}
+                    {(() => {
+                      // Prioritize pizarra.fecha (metadata date)
+                      const metadataDate = playingComercial.pizarra?.fecha;
+                      if (metadataDate && metadataDate.trim()) {
+                        return new Date(metadataDate).toLocaleDateString('es-MX', { 
+                          day: 'numeric', 
+                          month: 'short', 
+                          year: 'numeric' 
+                        });
+                      }
+                      // Fallback to fecha_subida
+                      return new Date(playingComercial.fecha_subida).toLocaleDateString('es-MX', { 
+                        day: 'numeric', 
+                        month: 'short', 
+                        year: 'numeric' 
+                      });
+                    })()}
                   </span>
                 </div>
               </div>
@@ -980,6 +989,7 @@ function ComercialesManager() {
 
         {/* View Mode Selector */}
         <div className="bg-white px-6 py-3 border-b">
+          
           <div className="flex items-center space-x-4 mb-2">
             <div className="flex space-x-2">
               {/* View 1: Simple */}
@@ -1144,7 +1154,7 @@ function ComercialesManager() {
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-24">FORMAT</th>
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-36">UPLOAD DATE</th>
                     <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-40">STATUS</th>
-                    <th className="px-4 py-3 text-right text-xs font-bold text-gray-600 uppercase w-24">ACTIONS</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-24">ACTIONS</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
@@ -1217,26 +1227,29 @@ function ComercialesManager() {
                       <tr key={`com-${item.data.id}`} className="hover:bg-blue-50 transition-colors">
                         {/* Thumbnail (Simple view) */}
                         <td className="px-4 py-3">
-                          <div className="relative w-24 h-14 bg-transparent rounded overflow-hidden shadow-sm flex items-center justify-center border border-gray-200">
+                          <div className="relative w-24 h-14 bg-transparent rounded overflow-hidden flex items-center justify-center">
                             {(() => {
                               const currentModulo = selectedModulo ? getSelectedRepoModulos().find(m => m.id === selectedModulo) : null;
-                              const isAudioModule = currentModulo?.tipo === 'audio';
+                              // Detect audio using multiple hints: module, item hint, route, and extension
+                              const ext = (getFileExtension(item?.data?.nombre_original || '') || '').toLowerCase();
+                              const looksAudioExt = ['mp3','wav','aac','m4a','flac','ogg'].includes(ext);
+                              const hasAudioRoute = !!(item?.data?.ruta_mp3 || (item?.data?.ruta_h264 && item?.data?.ruta_h264.endsWith('.mp3')));
+                              const isAudioModule = (item?.data?.modulo_info?.tipo === 'audio') || (currentModulo?.tipo === 'audio') || hasAudioRoute || looksAudioExt;
                               if (isAudioModule) {
                                 return (
                                   <img
-                                    src="/icons/audio.svg"
+                                    src="/icons/audifono.png?v=20251027-final"
                                     alt="Audio"
-                                    className="w-12 h-12 object-contain opacity-100"
+                                    className="w-16 h-12 object-contain"
                                     onError={(e) => {
-                                      // Intento de fallback a backend
-                                      if (!e.currentTarget.dataset.fallbackTried) {
-                                        e.currentTarget.dataset.fallbackTried = '1';
-                                        e.currentTarget.src = getApiUrl('/icons/audio.svg');
-                                        return;
-                                      }
-                                      // Fallback final: ocultar imagen y mostrar SVG de respaldo
-                                      e.currentTarget.style.display = 'none';
-                                      const fallback = e.currentTarget.nextElementSibling;
+                                      const el = e.currentTarget;
+                                      const step = el.dataset.fallbackStep || '0';
+                                      if (step === '0') { el.dataset.fallbackStep = '1'; el.src = getApiUrl('/icons/audifono.png?v=20251027-final'); return; }
+                                      if (step === '1') { el.dataset.fallbackStep = '2'; el.src = '/icons/audio.png?v=20251027-final'; return; }
+                                      if (step === '2') { el.dataset.fallbackStep = '3'; el.src = getApiUrl('/icons/audio.png?v=20251027-final'); return; }
+                                      // Final fallback: hide image
+                                      el.style.display = 'none';
+                                      const fallback = el.nextElementSibling;
                                       if (fallback) fallback.style.display = 'block';
                                     }}
                                   />
@@ -1295,22 +1308,13 @@ function ComercialesManager() {
                           {getFileExtension(item.data.nombre_original)}
                         </td>
                         
-                        {/* Fecha de Carga */}
+                        {/* Upload Date - Show fecha_subida (actual upload timestamp) */}
                         <td className="px-4 py-3 text-sm text-gray-700">
-                          {(() => {
-                            const date = new Date(item.data.fecha_subida);
-                            const dateStr = date.toLocaleDateString('es-MX', {
-                              day: 'numeric',
-                              month: 'short',
-                              year: 'numeric'
-                            });
-                            const timeStr = date.toLocaleTimeString('es-MX', {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                              hour12: true
-                            }).toLowerCase();
-                            return `${dateStr}, ${timeStr}`;
-                          })()}
+                          {new Date(item.data.fecha_subida).toLocaleDateString('es-MX', {
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric'
+                          })}
                         </td>
                         
                         {/* Status */}
@@ -1334,20 +1338,6 @@ function ComercialesManager() {
                         {/* Actions */}
                         <td className="px-4 py-3">
                           <div className="flex justify-end space-x-1">
-                            {/* Encode (video) */}
-                            <div className="relative group">
-                              <button
-                                onClick={() => setEncodingComercial(item.data)}
-                                className="p-1.5 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition-colors"
-                              >
-                                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
-                                  <path d="M480-800q-83 0-156 31.5T197-682q-55 55-86.5 128T79-398h86q0-130 92.5-222.5T480-713v-87Zm0 640q83 0 156-31.5T763-278q55-55 86.5-128T881-562h-86q0 130-92.5 222.5T480-247v87Zm0-480q-66 0-113 47t-47 113q0 66 47 113t113 47q66 0 113-47t47-113q0-66-47-113t-113-47Z"/>
-                                </svg>
-                              </button>
-                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
-                                Encode
-                              </div>
-                            </div>
                             <div className="relative group">
                               <button
                                 onClick={() => setEditingComercial(item.data)}
@@ -1359,6 +1349,104 @@ function ComercialesManager() {
                               </button>
                               <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
                                 Edit
+                              </div>
+                            </div>
+                            {item.data.estado_transcodificacion === 'COMPLETADO' && (
+                              <div className="relative group">
+                                <button 
+                                  onClick={() => handlePlay(item.data)}
+                                  className="p-1.5 bg-green-500 text-white rounded hover:bg-green-600 transition-colors"
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                    <path d="M320-200v-560l440 280-440 280Z"/>
+                                  </svg>
+                                </button>
+                                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                  Play
+                                </div>
+                              </div>
+                            )}
+                            <div className="relative group">
+                              <button 
+                                onClick={() => setSharingComercial(item.data)}
+                                className="p-1.5 bg-indigo-500 text-white rounded hover:bg-indigo-600 transition-colors"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                  <path d="M720-80q-50 0-85-35t-35-85q0-7 1-14.5t3-13.5L322-392q-17 15-38 23.5t-44 8.5q-50 0-85-35t-35-85q0-50 35-85t85-35q23 0 44 8.5t38 23.5l282-164q-2-6-3-13.5t-1-14.5q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-23 0-44-8.5T638-672L356-508q2 6 3 13.5t1 14.5q0 7-1 14.5t-3 13.5l282 164q17-15 38-23.5t44-8.5q50 0 85 35t35 85q0 50-35 85t-85 35Z"/>
+                                </svg>
+                              </button>
+                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                Share
+                              </div>
+                            </div>
+                            {item.data.estado_transcodificacion === 'COMPLETADO' && (
+                              <div className="relative group">
+                                {item.data.modulo_info?.tipo === 'audio' ? (
+                                  <>
+                                    <button 
+                                      onClick={() => setEncodingAudio(item.data)}
+                                      className="p-1.5 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition-colors"
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                        <path d="M480-800q-83 0-156 31.5T197-682q-55 55-86.5 128T79-398h86q0-130 92.5-222.5T480-713v-87Zm0 640q83 0 156-31.5T763-278q55-55 86.5-128T881-562h-86q0 130-92.5 222.5T480-247v87Zm0-480q-66 0-113 47t-47 113q0 66 47 113t113 47q66 0 113-47t47-113q0-66-47-113t-113-47Z"/>
+                                      </svg>
+                                    </button>
+                                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                      Encode
+                                    </div>
+                                  </>
+                                ) : (
+                                  <>
+                                    <button 
+                                      onClick={async () => {
+                                        try {
+                                          await axios.post(`/api/broadcasts/${item.data.id}/reprocess/`);
+                                          alert('✓ Transcodificación encolada');
+                                          fetchComerciales();
+                                        } catch (e) { 
+                                          alert('⚠️ Error starting transcode'); 
+                                          console.error(e);
+                                        }
+                                      }}
+                                      className="p-1.5 bg-green-500 text-white rounded hover:bg-green-600 transition-colors"
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                        <path d="M480-800q-83 0-156 31.5T197-682q-55 55-86.5 128T79-398h86q0-130 92.5-222.5T480-713v-87Zm0 640q83 0 156-31.5T763-278q55-55 86.5-128T881-562h-86q0 130-92.5 222.5T480-247v87Zm0-480q-66 0-113 47t-47 113q0 66 47 113t113 47q66 0 113-47t47-113q0-66-47-113t-113-47Z"/>
+                                      </svg>
+                                    </button>
+                                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                      Transcode
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            )}
+                            {item.data.estado_transcodificacion === 'COMPLETADO' && item.data.modulo_info?.tipo === 'audio' && (item.data.ruta_mp3 || (item.data.ruta_h264 && item.data.ruta_h264.endsWith('.mp3'))) && (
+                              <div className="relative group">
+                                <button 
+                                  onClick={() => handleDownload(item.data, 'mp3')}
+                                  className="p-1.5 bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors"
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                    <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
+                                  </svg>
+                                </button>
+                                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                  Download MP3
+                                </div>
+                              </div>
+                            )}
+                            <div className="relative group">
+                              <button 
+                                onClick={() => handleDownload(item.data, 'original')}
+                                className="p-1.5 bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor">
+                                  <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
+                                </svg>
+                              </button>
+                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                Download Original
                               </div>
                             </div>
                             <div className="relative group">
@@ -1527,8 +1615,8 @@ function ComercialesManager() {
                           <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">VERSION</th>
                           <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-24">TIME</th>
                           <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">TYPE</th>
-                          <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-36">DATE</th>
-                          <th className="px-4 py-3 text-right text-xs font-bold text-gray-600 uppercase w-24">ACTIONS</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-36">DATE-CREATE</th>
+                          <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-24">ACTIONS</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
@@ -1650,7 +1738,19 @@ function ComercialesManager() {
                                 </span>
                               </td>
                               <td className="px-4 py-3 text-sm text-gray-600">
-                                {new Date(item.data.fecha_subida).toLocaleDateString('es-MX')}
+                                {/* Show pizarra.fecha in readable format: 12 oct 2024 */}
+                                {item.data.pizarra?.fecha ? (() => {
+                                  try {
+                                    const date = new Date(item.data.pizarra.fecha);
+                                    return date.toLocaleDateString('es-MX', {
+                                      day: 'numeric',
+                                      month: 'short',
+                                      year: 'numeric'
+                                    });
+                                  } catch {
+                                    return item.data.pizarra.fecha;
+                                  }
+                                })() : '-'}
                               </td>
                               <td className="px-4 py-3 text-sm">
                                 <div className="flex justify-end space-x-1">
@@ -1703,8 +1803,8 @@ function ComercialesManager() {
                                       onClick={async () => {
                                         try {
                                           await axios.post(`/api/audios/${item.data.id}/reprocess/`);
-                                          alert('✓ Reproceso de audio encolado');
-                                        } catch (e) { alert('⚠️ Error al iniciar reproceso'); }
+                                        alert('✓ Audio reprocess queued');
+                                        } catch (e) { alert('⚠️ Error starting reprocess'); }
                                       }}
                                       className="p-1.5 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition-colors"
                                     >
@@ -1790,7 +1890,7 @@ function ComercialesManager() {
           ) : (
             // Vista Grid con Thumbnails
             <div className="p-6">
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-10 gap-4">
                 {comercialesFiltrados.map(comercial => {
                   return (
                   <div 
@@ -1799,35 +1899,80 @@ function ComercialesManager() {
                   >
                     {/* Thumbnail */}
                     <div className="relative bg-gray-900 aspect-video flex items-center justify-center">
-                      {comercial.thumbnail_url ? (
-                        <img 
-                          src={comercial.thumbnail_url}
-                          alt={comercial.pizarra?.producto || 'Thumbnail'}
-                          className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
-                          onClick={() => setEditingComercial(comercial)}
-                        />
-                      ) : comercial.estado_transcodificacion === 'COMPLETADO' && comercial.ruta_proxy ? (
-                        <video 
-                          className="w-full h-full object-cover"
-                          preload="metadata"
-                          onMouseEnter={(e) => e.target.play()}
-                          onMouseLeave={(e) => {
-                            e.target.pause();
-                            e.target.currentTime = 0;
-                          }}
-                        >
-                          <source src={getMediaUrl(comercial.ruta_proxy)} type="video/mp4" />
-                        </video>
-                      ) : (
-                        <div className="text-gray-500 text-center p-4">
-                          <div className="text-3xl mb-2">🎬</div>
-                          <div className="text-xs">
-                            {comercial.estado_transcodificacion === 'PROCESANDO' ? 'Processing...' : 
-                             comercial.estado_transcodificacion === 'PENDIENTE' ? 'In queue...' : 
-                             'Error'}
+                      {(() => {
+                        const isAudio = !!(comercial?.modulo_info?.tipo === 'audio' || comercial?.ruta_mp3 || (comercial?.ruta_h264 && comercial?.ruta_h264.endsWith?.('.mp3')));
+                        if (isAudio) {
+                          const audioSrc = getMediaUrl(comercial.ruta_mp3 || (comercial.ruta_h264 && comercial.ruta_h264.endsWith('.mp3') ? comercial.ruta_h264 : ''));
+                          return (
+                            <div className="w-full h-full flex items-center justify-center relative">
+                              <img
+                                src="/icons/audifono.png?v=20251027-final"
+                                alt="Audio"
+                                className="w-14 h-14 opacity-90 object-contain"
+                                onError={(e) => {
+                                  const el = e.currentTarget;
+                                  const step = el.dataset.fallbackStep || '0';
+                                  if (step === '0') { el.dataset.fallbackStep = '1'; el.src = getApiUrl('/icons/audifono.png?v=20251027-final'); return; }
+                                  if (step === '1') { el.dataset.fallbackStep = '2'; el.src = '/icons/audio.png?v=20251027-final'; return; }
+                                  if (step === '2') { el.dataset.fallbackStep = '3'; el.src = getApiUrl('/icons/audio.png?v=20251027-final'); return; }
+                                  el.style.display = 'none';
+                                }}
+                              />
+                              {/* Reproducción al hover */}
+                              {audioSrc ? (
+                                <audio
+                                  src={audioSrc}
+                                  preload="none"
+                                  className="hidden"
+                                  onMouseEnter={(e) => {
+                                    try { e.currentTarget.play(); } catch(_) {}
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    try { e.currentTarget.pause(); e.currentTarget.currentTime = 0; } catch(_) {}
+                                  }}
+                                />
+                              ) : null}
+                              {/* Overlay de estado al pasar el mouse */}
+                              <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all" />
+                            </div>
+                          );
+                        }
+
+                        if (comercial.thumbnail_url) {
+                          return (
+                            <img 
+                              src={comercial.thumbnail_url}
+                              alt={comercial.pizarra?.producto || 'Thumbnail'}
+                              className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                              onClick={() => setEditingComercial(comercial)}
+                            />
+                          );
+                        }
+
+                        if (comercial.estado_transcodificacion === 'COMPLETADO' && comercial.ruta_proxy) {
+                          return (
+                            <video 
+                              className="w-full h-full object-cover"
+                              preload="metadata"
+                              onMouseEnter={(e) => e.target.play()}
+                              onMouseLeave={(e) => { e.target.pause(); e.target.currentTime = 0; }}
+                            >
+                              <source src={getMediaUrl(comercial.ruta_proxy)} type="video/mp4" />
+                            </video>
+                          );
+                        }
+
+                        return (
+                          <div className="text-gray-500 text-center p-4">
+                            <div className="text-3xl mb-2">🎬</div>
+                            <div className="text-xs">
+                              {comercial.estado_transcodificacion === 'PROCESANDO' ? 'Processing...' : 
+                               comercial.estado_transcodificacion === 'PENDIENTE' ? 'In queue...' : 
+                               'Error'}
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        );
+                      })()}
                       
                       {/* Badge de estado */}
                       <div className="absolute top-2 right-2">
@@ -1847,7 +1992,7 @@ function ComercialesManager() {
                     {/* Info */}
                     <div className="p-3">
                       <h3 className="font-semibold text-sm text-gray-900 truncate mb-1">
-                        {comercial.pizarra?.producto || 'Sin título'}
+                        {comercial.pizarra?.producto || 'Untitled'}
                       </h3>
                       <p className="text-xs text-gray-600 truncate mb-1">
                         {comercial.pizarra?.cliente || comercial.repositorio_nombre}
@@ -1908,8 +2053,8 @@ function ComercialesManager() {
                                     onClick={async () => {
                                       try {
                                         await axios.post(`/api/audios/${comercial.id}/reprocess/`);
-                                        alert('✓ Reproceso de audio encolado');
-                                      } catch (e) { alert('⚠️ Error al iniciar reproceso'); }
+                                        alert('✓ Audio reprocess queued');
+                                      } catch (e) { alert('⚠️ Error starting reprocess'); }
                                     }}
                                     className="p-1 text-yellow-600 hover:bg-yellow-50 rounded transition-colors" 
                                   >
@@ -1931,7 +2076,7 @@ function ComercialesManager() {
                                         alert('✓ Transcodificación encolada');
                                         fetchComerciales();
                                       } catch (e) { 
-                                        alert('⚠️ Error al iniciar transcodificación'); 
+                                        alert('⚠️ Error starting transcode'); 
                                         console.error(e);
                                       }
                                     }}
@@ -1993,9 +2138,15 @@ function ComercialesManager() {
                         </div>
                       </div>
                       
-                      {/* Date */}
+                      {/* Date (prioritize pizarra.fecha) */}
                       <div className="text-xs text-gray-400 mt-2">
-                        {new Date(comercial.fecha_subida).toLocaleDateString('es-MX')}
+                        {(() => {
+                          const metadataDate = comercial.pizarra?.fecha;
+                          if (metadataDate && metadataDate.trim()) {
+                            return new Date(metadataDate).toLocaleDateString('es-MX');
+                          }
+                          return new Date(comercial.fecha_subida).toLocaleDateString('es-MX');
+                        })()}
                       </div>
                     </div>
                   </div>

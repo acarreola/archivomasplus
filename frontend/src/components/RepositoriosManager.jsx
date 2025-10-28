@@ -41,17 +41,47 @@ export default function RepositoriosManager() {
   });
 
   const handleDeleteAllBroadcasts = async () => {
-    if (!window.confirm('¿Estás seguro de que quieres eliminar TODOS los broadcasts de la base de datos? Esta acción no se puede deshacer.')) {
+    if (!window.confirm(
+      '⚠️ ADVERTENCIA: Esta acción eliminará PERMANENTEMENTE:\n\n' +
+      '• Todos los registros de Broadcasts de la base de datos\n' +
+      '• Todos los Directorios\n' +
+      '• TODOS los archivos físicos:\n' +
+      '  - Archivos originales (sources/)\n' +
+      '  - Thumbnails (thumbnails/)\n' +
+      '  - Pizarras (pizarra/)\n' +
+      '  - Videos transcodificados (support/)\n' +
+      '  - Encodings personalizados (encoded/)\n\n' +
+      '❌ ESTA ACCIÓN NO SE PUEDE DESHACER ❌\n\n' +
+      '¿Estás completamente seguro de continuar?'
+    )) {
+      return;
+    }
+
+    // Segunda confirmación
+    if (!window.confirm('⚠️ ÚLTIMA CONFIRMACIÓN: ¿Realmente deseas eliminar TODO el contenido del sistema?')) {
       return;
     }
 
     try {
       const response = await axios.post('http://localhost:8000/api/broadcasts/delete_all/');
-      alert(response.data.message);
-      fetchRepositorios(); // Opcional: refrescar datos si es necesario
+      
+      // Mostrar detalles de la eliminación
+      if (response.data.details) {
+        alert(
+          `✅ Eliminación completada:\n\n` +
+          `📊 Broadcasts: ${response.data.details.broadcasts}\n` +
+          `📁 Directorios: ${response.data.details.directorios}\n` +
+          `📄 Archivos físicos: ${response.data.details.archivos}\n` +
+          (response.data.details.errores > 0 ? `⚠️ Errores: ${response.data.details.errores}` : '')
+        );
+      } else {
+        alert(response.data.message);
+      }
+      
+      fetchRepositorios(); // Refrescar datos
     } catch (err) {
       console.error('Error deleting all broadcasts:', err);
-      alert('Error al eliminar los broadcasts: ' + (err.response?.data?.error || err.message));
+      alert('❌ Error al eliminar los broadcasts: ' + (err.response?.data?.error || err.message));
     }
   };
 

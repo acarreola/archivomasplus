@@ -47,7 +47,7 @@ export default function AudioEncodingModal({ audio, onClose, onSuccess }) {
     <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
       <div className="bg-gray-900 rounded-lg shadow-2xl w-full max-w-3xl overflow-hidden">
         <div className="bg-blue-700 px-6 py-4 flex justify-between items-center">
-          <h2 className="text-white text-xl font-bold">Codificar Audio</h2>
+          <h2 className="text-white text-xl font-bold">Encode Audio</h2>
           <button onClick={onClose} className="text-white text-2xl leading-none">×</button>
         </div>
         <div className="p-6 space-y-6">

@@ -187,7 +187,8 @@ MEDIA_URL = '/media/'
 # Allow overriding MEDIA_ROOT via env for non-Docker or custom setups.
 # Inside Docker, we bind-mount the host path to /app/media, so the default works.
 # To override, set MEDIA_CONTAINER_PATH in the environment (absolute path inside the container/host process).
-MEDIA_ROOT = Path(os.getenv('MEDIA_CONTAINER_PATH') or (BASE_DIR / 'media'))
+# Default: use external SSD for media storage
+MEDIA_ROOT = Path(os.getenv('MEDIA_CONTAINER_PATH') or '/Volumes/SSD/media')
 
 # REST Framework settings for authentication
 REST_FRAMEWORK = {

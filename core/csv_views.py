@@ -2,6 +2,7 @@
 CSV Import/Export views for Broadcast model
 """
 import csv
+from datetime import datetime
 from django.http import HttpResponse
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
@@ -39,28 +40,31 @@ def export_broadcasts_csv(request):
     
     # Header row - matching your CSV structure
     writer.writerow([
-        # Vista Simple
-        'id_content',            # Folio contenido
-        'Nombre de archivo',     # original name (ruta/nombre)
-        'Parent',                # key (id_dir del directorio)
-        'Folio',                 # folio del repositorio
-        'Tipo',                  # tipo (Broadcast)
-        'Tamaño',                # file size (legible)
-        'Username',              # registrado por
-        'Fecha de registro',     # upload date (yyyy-mm-dd)
-        'Status',                # estado amigable
-        # Vista Full
-        'Client',                # client
-        'Agency',                # agency
-        'Product',               # product
-        'Version',               # version
-        'Duration',              # time/duration
-        'Type',                  # 1=Master, 2=Generico, 3=Intergenerico, 4=Intergenerico con logos, 5=Subtitulado, 6=Pista
-        'Expedition',            # date
+        # Simple View
+        'id_content',            # Content folio
+        'file_name',             # Original file name
+        'parent_directory',      # Directory key (id_dir)
+        'repository_folio',      # Repository folio
+        'repository_key',        # 4-letter repository key
+        'type',                  # Type (Broadcast)
+        'size_mb',               # File size (MB)
+        'size_bytes',            # File size (bytes)
+        'format',                # File extension
+        'username',              # Registered by
+        'upload_date',           # Upload date (yyyy-mm-dd)
+        'status',                # Status
+        # Full View
+        'client',                # Client
+        'agency',                # Agency
+        'product',               # Product
+        'version',               # Version
+        'duration',              # Duration
+        'video_type',            # 1=Master, 2=Generic, etc.
+        'date_create',           # Editable metadata date
         # Extras
-        'id_uuid',               # UUID original
-        'repositorio',           # Repositorio name
-        'modulo',                # Modulo name
+        'id_uuid',               # UUID
+        'repository_name',       # Repository name
+        'module_name',           # Module name
     ])
     
     # Data rows - filter by repositorio if provided
@@ -73,15 +77,25 @@ def export_broadcasts_csv(request):
         # Get pizarra data with defaults
         pizarra = b.pizarra or {}
 
-        # Calculate file size
+        # Calculate file size (both readable and bytes)
         file_size = ''
+        size_bytes = ''
         if b.archivo_original:
             try:
-                size_bytes = b.archivo_original.size
-                size_mb = size_bytes / (1024 * 1024)
+                size_bytes_int = b.archivo_original.size
+                size_bytes = str(size_bytes_int)
+                size_mb = size_bytes_int / (1024 * 1024)
                 file_size = f"{size_mb:.2f} MB"
             except Exception:
                 file_size = 'N/A'
+                size_bytes = ''
+        
+        # Get file extension/format
+        file_format = ''
+        if b.nombre_original:
+            import os
+            _, ext = os.path.splitext(b.nombre_original)
+            file_format = ext.upper().lstrip('.')  # Remove dot and uppercase (e.g., ".mov" -> "MOV")
 
         # Fallbacks for instances where folio fields are not present in current model
         try:
@@ -110,8 +124,11 @@ def export_broadcasts_csv(request):
             b.nombre_original or '',
             dir_folio,
             b.repositorio.folio if b.repositorio else '',
+            b.repositorio.clave if b.repositorio else '',
             'Broadcast',
             file_size,
+            size_bytes,
+            file_format,
             (b.creado_por.username if getattr(b, 'creado_por', None) else ''),
             b.fecha_subida.strftime('%Y-%m-%d') if b.fecha_subida else '',
             status_display,
@@ -122,7 +139,7 @@ def export_broadcasts_csv(request):
             pizarra.get('version', ''),
             pizarra.get('duracion', ''),
             pizarra.get('vtype', ''),
-            pizarra.get('expedition', ''),
+            pizarra.get('fecha', ''),  # Changed from 'expedition' to 'fecha' to match our field
             # Extras
             str(b.id),
             b.repositorio.nombre if b.repositorio else '',
@@ -146,17 +163,17 @@ def export_csv_template(request):
     
     # Header row
     writer.writerow([
-        'id_content',        # Required: Folio único (ej: XUTFe)
-        'Nombre de archivo', # Required: File name/path
-        'Tamaño',           # Optional: File size
-        'id_dir',           # Optional: Directory folio (parent directory)
-        'product',          # Required: Product name
-        'client',           # Required: Client name
-        'version',          # Required: Version/title
-        'duration',         # Required: Duration (ej: 20 SEG, 30 SEG)
-        'expedition',       # Optional: Expedition date (YYYY-MM-DD)
-        'agency',           # Required: Agency name
-        'vtype',            # Optional: Video type (1=master, 2=generico, 3=intergenerico)
+        'id_content',        # Required: Unique folio (e.g. XUTFe)
+        'file_name',         # Required: File name/path
+        'size_mb',           # Optional: File size (MB)
+        'id_dir',            # Optional: Directory folio (parent directory)
+        'product',           # Required: Product name
+        'client',            # Required: Client name
+        'version',           # Required: Version/title
+        'duration',          # Required: Duration (e.g. 20 SEC, 30 SEC)
+        'date_create',       # Editable metadata date (YYYY-MM-DD)
+        'agency',            # Required: Agency name
+        'video_type',        # Optional: Video type (1=Master, 2=Generic, etc.)
     ])
     
     # Example row
@@ -397,35 +414,72 @@ def import_broadcasts_csv(request):
         supports_id_dir = model_has_field(Directorio, 'id_dir')
         supports_id_content = model_has_field(Broadcast, 'id_content')
 
+        # Helper: normalize incoming date strings to YYYY-MM-DD
+        def normalize_date(value: str) -> str:
+            s = (value or '').strip()
+            if not s:
+                return ''
+            
+            # Try dd/mm/yy format first (most common in your CSV)
+            # Manually parse to ensure correct interpretation: 31/01/05 -> 2005-01-31
+            if '/' in s:
+                parts = s.split('/')
+                if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit() and parts[2].isdigit():
+                    d, m, y = parts[0], parts[1], parts[2]
+                    # Handle 2-digit year: 00-69 = 2000-2069, 70-99 = 1970-1999
+                    if len(y) == 2:
+                        yy = int(y)
+                        year = 2000 + yy if yy <= 69 else 1900 + yy
+                    else:
+                        year = int(y)
+                    try:
+                        dt = datetime(year, int(m), int(d))
+                        return dt.strftime('%Y-%m-%d')
+                    except Exception:
+                        pass
+            
+            # Try other common formats as fallback
+            for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%m/%d/%Y', '%Y/%m/%d'):
+                try:
+                    dt = datetime.strptime(s, fmt)
+                    return dt.strftime('%Y-%m-%d')
+                except ValueError:
+                    continue
+            
+            # If unrecognized, return as-is to avoid data loss
+            return s
+
         for row_num, row in enumerate(reader, start=2):  # start=2 because row 1 is header
             try:
                 # Extract data from CSV
-                # Accept aliases from "Vista Simple" and "Vista Full"
+                # Accept aliases from English and Spanish headers
                 id_content = (row.get('id_content') or row.get('Folio') or '').strip()
-                nombre_archivo = (row.get('Nombre de archivo') or row.get('original name') or '').strip()
-                id_dir = (row.get('id_dir') or row.get('Parent') or row.get('key') or '').strip()
-                status_csv = (row.get('Status') or '').strip()
-                username_csv = (row.get('Username') or row.get('register') or '').strip()
-                
+                file_name = (row.get('file_name') or row.get('Nombre de archivo') or row.get('original name') or '').strip()
+                id_dir = (row.get('id_dir') or row.get('parent_directory') or row.get('Parent') or row.get('key') or '').strip()
+                status_csv = (row.get('status') or row.get('Status') or '').strip()
+                username_csv = (row.get('username') or row.get('Username') or row.get('register') or '').strip()
+                upload_date_csv = (row.get('upload_date') or row.get('Fecha de registro') or '').strip()
+                date_create_csv = (row.get('date_create') or row.get('Date-Create') or row.get('fecha') or row.get('Expedition') or '').strip()
+
                 # Required fields validation
                 if not id_content:
                     errors.append(f"Row {row_num}: id_content is required")
                     continue
-                
-                if not nombre_archivo:
-                    errors.append(f"Row {row_num}: Nombre de archivo is required")
+
+                if not file_name:
+                    errors.append(f"Row {row_num}: file_name is required")
                     continue
-                
+
                 # Extract directory name from path if available
-                # Example: /COMERCIALES 2000/File.mov → COMERCIALES 2000
+                # Example: /COMMERCIALS 2000/File.mov → COMMERCIALS 2000
                 directorio = None
                 directorio_nombre = None
-                
-                if '/' in nombre_archivo:
-                    path_parts = nombre_archivo.strip('/').split('/')
+
+                if '/' in file_name:
+                    path_parts = file_name.strip('/').split('/')
                     if len(path_parts) > 1:
                         directorio_nombre = path_parts[0]
-                
+
                 # Find or create directory
                 if id_dir and supports_id_dir:
                     # Try to find by id_dir first
@@ -468,9 +522,9 @@ def import_broadcasts_csv(request):
                     'cliente': (row.get('client') or row.get('Client') or '').strip(),
                     'version': (row.get('version') or row.get('Version') or '').strip(),
                     'duracion': (row.get('duration') or row.get('Duration') or '').strip(),
-                    'expedition': (row.get('expedition') or row.get('Expedition') or '').strip(),
+                    'fecha': normalize_date(date_create_csv),
                     'agencia': (row.get('agency') or row.get('Agency') or '').strip(),
-                    'vtype': (row.get('vtype') or row.get('Type') or '').strip(),
+                    'vtype': (row.get('video_type') or row.get('vtype') or row.get('Type') or '').strip(),
                 }
                 
                 # Get broadcast module (assuming Broadcast type)
@@ -488,7 +542,7 @@ def import_broadcasts_csv(request):
                             'repositorio': repositorio,
                             'directorio': directorio,
                             'modulo': modulo,
-                            'nombre_original': nombre_archivo,
+                            'nombre_original': file_name,
                             'pizarra': pizarra,
                             'estado_transcodificacion': 'METADATA_ONLY',  # Solo metadata, no procesar
                         }
@@ -499,7 +553,7 @@ def import_broadcasts_csv(request):
                         repositorio=repositorio,
                         directorio=directorio,
                         modulo=modulo,
-                        nombre_original=nombre_archivo,
+                        nombre_original=file_name,
                         pizarra=pizarra,
                         estado_transcodificacion='METADATA_ONLY',
                     )

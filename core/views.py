@@ -1360,13 +1360,77 @@ class BroadcastViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], permission_classes=[IsAdminUser])
     def delete_all(self, request):
         """
-        Deletes all Broadcast records. For testing purposes only.
+        Deletes all Broadcast records AND their physical files. For testing purposes only.
+        Also deletes all Directorios and COMPLETELY EMPTIES media folders.
         """
         if not request.user.is_superuser:
             return Response({'error': 'Solo los superusuarios pueden realizar esta acción.'}, status=status.HTTP_403_FORBIDDEN)
-            
-        count, _ = Broadcast.objects.all().delete()
-        return Response({'message': f'Se eliminaron {count} registros de Broadcasts.'}, status=status.HTTP_200_OK)
+        
+        import os
+        import shutil
+        from pathlib import Path
+        from django.conf import settings
+        
+        deleted_files = 0
+        deleted_dirs = 0
+        errors = []
+        
+        # Get counts before deleting
+        broadcast_count = Broadcast.objects.count()
+        directorio_count = Directorio.objects.count()
+        
+        # Delete all broadcasts from database FIRST
+        Broadcast.objects.all().delete()
+        
+        # Delete all Directorios from database
+        Directorio.objects.all().delete()
+        
+        # Now COMPLETELY EMPTY the media folders
+        media_root = Path(settings.MEDIA_ROOT)
+        subdirs = ['sources', 'thumbnails', 'pizarra', 'support', 'encoded', 'encoded_audio']
+        
+        for subdir in subdirs:
+            subdir_path = media_root / subdir
+            if subdir_path.exists():
+                try:
+                    # Count files before deletion
+                    files_in_dir = list(subdir_path.rglob('*'))
+                    file_count = sum(1 for f in files_in_dir if f.is_file())
+                    
+                    # Remove ALL contents of the directory
+                    for item in subdir_path.iterdir():
+                        try:
+                            if item.is_file() or item.is_symlink():
+                                item.unlink()
+                                deleted_files += 1
+                            elif item.is_dir():
+                                # Skip .DS_Store and hidden folders but delete everything else
+                                if not item.name.startswith('.'):
+                                    shutil.rmtree(item)
+                                    deleted_files += file_count  # Approximate
+                        except Exception as e:
+                            errors.append(f"Error deleting {item}: {str(e)}")
+                    
+                    logger.info(f"Limpiado directorio {subdir}: {file_count} archivos eliminados")
+                    
+                except Exception as e:
+                    errors.append(f"Error cleaning directory {subdir}: {str(e)}")
+        
+        result = {
+            'message': f'Se eliminaron {broadcast_count} broadcasts, {directorio_count} directorios y se vaciaron completamente las carpetas de media.',
+            'details': {
+                'broadcasts': broadcast_count,
+                'directorios': directorio_count,
+                'archivos_aproximados': deleted_files,
+                'carpetas_vaciadas': subdirs,
+                'errores': len(errors)
+            }
+        }
+        
+        if errors:
+            result['errors'] = errors[:10]  # Solo primeros 10 errores
+        
+        return Response(result, status=status.HTTP_200_OK)
 
 
 @api_view(['GET', 'POST'])
