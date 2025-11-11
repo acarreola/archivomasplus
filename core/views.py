@@ -528,6 +528,49 @@ class BroadcastViewSet(viewsets.ModelViewSet):
     # Permitir búsqueda por nombre de archivo también (requerido para módulos tipo "reel")
     search_fields = ['pizarra__producto', 'pizarra__version', 'nombre_original']
 
+    # ------------------------------------------------------------
+    # Helpers para encolar/transcodificar de forma robusta
+    # ------------------------------------------------------------
+    def _celery_workers_online(self) -> bool:
+        """Regresa True si hay al menos un worker Celery disponible.
+        Evita fallas silenciosas cuando no hay workers en desarrollo.
+        """
+        try:
+            from celery import current_app
+            insp = current_app.control.inspect()
+            stats = insp.stats() if insp else None
+            return bool(stats)
+        except Exception:
+            return False
+
+    def _enqueue_transcode(self, broadcast):
+        """Encola transcodificación con Celery o hace fallback síncrono si no hay workers.
+        Modo pensado para desarrollo/local cuando no se tiene un worker levantado.
+        """
+        from django.conf import settings
+        import os
+
+        # Permitir forzar modo síncrono por variable de entorno
+        sync_env = os.getenv('SYNC_TRANSCODE', '').strip() == '1'
+        celery_ok = self._celery_workers_online()
+
+        if celery_ok and not sync_env:
+            # Encolar normal con Celery
+            transcode_video.delay(str(broadcast.id))
+            logger.info(f"🎬 Broadcast {broadcast.id} queued for transcoding (Celery)")
+            return 'queued'
+
+        # Fallback: ejecutar síncrono (bloquea la request) — útil en local/DEBUG
+        logger.warning(
+            f"⚠️ No hay workers Celery activos o SYNC_TRANSCODE=1, ejecutando transcode_video() en modo síncrono para {broadcast.id}"
+        )
+        try:
+            transcode_video(str(broadcast.id))
+            return 'sync'
+        except Exception as e:
+            logger.error(f"Error en transcode síncrono para {broadcast.id}: {e}")
+            raise
+
     def get_queryset(self):
         """
         Filtrar broadcasts según los permisos del usuario:
@@ -554,50 +597,45 @@ class BroadcastViewSet(viewsets.ModelViewSet):
             repositorio_id__in=repositorios_ids
         ).order_by('-fecha_subida')
 
-class ProcessingErrorViewSet(viewsets.ReadOnlyModelViewSet):
-    """Lista los errores de procesamiento. Solo lectura."""
-    serializer_class = ProcessingErrorSerializer
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['repositorio', 'modulo', 'directorio', 'stage', 'resolved']
-    search_fields = ['file_name', 'error_message']
-    ordering_fields = ['fecha_creacion', 'file_name', 'stage']
-
-    def get_queryset(self):
-        user = self.request.user
-        qs = ProcessingError.objects.all()
-        # Superusers ven todo
-        if user.is_superuser or user.is_staff:
-            return qs.order_by('-fecha_creacion')
-        if not user.is_authenticated:
-            return qs.none()
-        # Filtrar por repos permitidos
-        repositorios_ids = RepositorioPermiso.objects.filter(
-            usuario=user,
-            puede_ver=True
-        ).values_list('repositorio_id', flat=True)
-        return qs.filter(repositorio_id__in=repositorios_ids).order_by('-fecha_creacion')
-
     def create(self, request, *args, **kwargs):
         """
         Sobrescribimos el método create para manejar el upload de archivos
         y disparar la tarea de transcodificación.
+        
+        Flujo:
+        1. Guardar archivo (estado: PENDIENTE)
+        2. Devolver response inmediatamente al frontend
+        3. Procesamiento en background vía Celery o signal
         """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         extra = {}
         if request.user and request.user.is_authenticated:
             extra['creado_por'] = request.user
+        
+        # Guardar broadcast - se crea con estado PENDIENTE por defecto
         broadcast = serializer.save(**extra)
         
-        # Si hay un archivo original, disparar la tarea de transcodificación
+        # Si hay archivo original, encolar procesamiento de forma NO-BLOQUEANTE
         if broadcast.archivo_original:
-            # Actualizar estado a PROCESANDO
-            broadcast.estado_transcodificacion = 'PROCESANDO'
-            broadcast.save()
+            # Encolar tarea Celery de forma asíncrona
+            # NO actualizar estado aquí - dejar que el signal o la tarea lo haga
+            # Esto permite que el frontend reciba la respuesta inmediatamente
+            from celery import current_app
+            try:
+                insp = current_app.control.inspect()
+                has_workers = bool(insp and insp.stats())
+            except Exception:
+                has_workers = False
             
-            # Disparar tarea Celery asíncrona
-            transcode_video.delay(str(broadcast.id))
-            logger.info(f"🎬 Broadcast {broadcast.id} queued for transcoding")
+            if has_workers:
+                # Hay workers disponibles - encolar
+                transcode_video.delay(str(broadcast.id))
+                logger.info(f"🎬 Broadcast {broadcast.id} encolado para procesamiento (Celery)")
+            else:
+                # Sin workers - el signal lo manejará en el próximo save
+                # o podemos dejarlo en PENDIENTE para procesamiento manual
+                logger.warning(f"⚠️ Broadcast {broadcast.id} quedó en PENDIENTE - sin workers Celery")
         
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
@@ -662,6 +700,24 @@ class ProcessingErrorViewSet(viewsets.ReadOnlyModelViewSet):
             except Exception as e:
                 logger.error(f"  ✗ Error deleting {archivo_path}: {e}")
 
+    @action(detail=True, methods=['post'], permission_classes=[IsAdminUser])
+    def force_transcode(self, request, pk=None):
+        """Re-encola y fuerza la transcodificación de un broadcast.
+        Útil cuando quedó en PENDIENTE o tras un error temporal.
+        """
+        try:
+            broadcast = Broadcast.objects.get(pk=pk)
+        except Broadcast.DoesNotExist:
+            return Response({'error': 'Broadcast no encontrado'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Reset de estado para forzar nuevo intento
+        broadcast.last_error = ''
+        broadcast.estado_transcodificacion = 'PROCESANDO'
+        broadcast.save(update_fields=['last_error', 'estado_transcodificacion'])
+
+        mode = self._enqueue_transcode(broadcast)
+        return Response({'status': 'ok', 'mode': mode, 'id': str(broadcast.id)})
+
     def destroy(self, request, *args, **kwargs):
         """
         Override destroy method to delete all physical files
@@ -673,6 +729,30 @@ class ProcessingErrorViewSet(viewsets.ReadOnlyModelViewSet):
         # Finally, delete the database record
         logger.info(f"  ✓ Database record deleted")
         return super().destroy(request, *args, **kwargs)
+
+
+class ProcessingErrorViewSet(viewsets.ReadOnlyModelViewSet):
+    """Lista los errores de procesamiento. Solo lectura."""
+    serializer_class = ProcessingErrorSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['repositorio', 'modulo', 'directorio', 'stage', 'resolved']
+    search_fields = ['file_name', 'error_message']
+    ordering_fields = ['fecha_creacion', 'file_name', 'stage']
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = ProcessingError.objects.all()
+        # Superusers ven todo
+        if user.is_superuser or user.is_staff:
+            return qs.order_by('-fecha_creacion')
+        if not user.is_authenticated:
+            return qs.none()
+        # Filtrar por repos permitidos
+        repositorios_ids = RepositorioPermiso.objects.filter(
+            usuario=user,
+            puede_ver=True
+        ).values_list('repositorio_id', flat=True)
+        return qs.filter(repositorio_id__in=repositorios_ids).order_by('-fecha_creacion')
 
 
 class StorageAssetViewSet(viewsets.ModelViewSet):
@@ -898,8 +978,8 @@ class StorageAssetViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], url_path='cancel_stuck_processes')
     def cancel_stuck_processes(self, request):
         """
-        Cancela todos los procesos de encoding atascados.
-        Marca como FALLIDO todos los broadcasts que están en PROCESANDO.
+    Cancela todos los procesos de encoding atascados.
+    Marca como ERROR todos los broadcasts que están en PROCESANDO.
         """
         from datetime import timedelta
         
@@ -918,10 +998,10 @@ class StorageAssetViewSet(viewsets.ModelViewSet):
                 'updated_count': 0
             })
         
-        # Actualizar a FALLIDO
-        stuck_broadcasts.update(estado_transcodificacion='FALLIDO')
+        # Actualizar a ERROR y dejar evidencia
+        stuck_broadcasts.update(estado_transcodificacion='ERROR', last_error='Cancelled (stuck) by admin')
         
-        logger.info(f"🛑 {count} broadcasts stuck in PROCESANDO marked as FALLIDO")
+        logger.info(f"🛑 {count} broadcasts stuck in PROCESANDO marked as ERROR (cancelled)")
         
         return Response({
             'message': f'{count} stuck processes cancelled',
@@ -947,15 +1027,29 @@ class StorageAssetViewSet(viewsets.ModelViewSet):
                 'updated_count': 0
             })
         
-        # Actualizar a FALLIDO
-        processing_broadcasts.update(estado_transcodificacion='FALLIDO')
+        # Actualizar a ERROR y dejar evidencia
+        processing_broadcasts.update(estado_transcodificacion='ERROR', last_error='Cancelled by admin')
         
-        logger.info(f"🛑 {count} broadcasts in PROCESANDO manually cancelled and marked as FALLIDO")
-        
+        logger.info(f"🛑 {count} broadcasts in PROCESANDO manually cancelled and marked as ERROR")
+
         return Response({
             'message': f'{count} processes cancelled',
             'updated_count': count
         })
+
+    @action(detail=True, methods=['post'], url_path='cancel')
+    def cancel_one(self, request, pk=None):
+        """Cancela un broadcast en proceso (marca como ERROR)."""
+        try:
+            b = self.get_object()
+            if b.estado_transcodificacion != 'PROCESANDO':
+                return Response({'message': 'Broadcast no está en PROCESANDO', 'estado': b.estado_transcodificacion})
+            b.estado_transcodificacion = 'ERROR'
+            b.last_error = 'Cancelled by user'
+            b.save(update_fields=['estado_transcodificacion', 'last_error'])
+            return Response({'message': 'Cancelado', 'id': str(b.id)})
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=False, methods=['post'], url_path='retry_failed')
     def retry_failed(self, request):

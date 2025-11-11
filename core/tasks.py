@@ -115,7 +115,7 @@ print(f"🎬 FFmpeg usando: {HW_ENCODER_CONFIG['type'].upper()} - H.264: {HW_ENC
 @shared_task
 def transcode_video(broadcast_id):
     """
-    Tarea Celery para transcodificar videos a H.265/HEVC (proxy de reproducción)
+    Tarea Celery para transcodificar videos a H.264 (support)
     con deinterlace y aceleración por GPU si está disponible.
     
     Args:
@@ -124,10 +124,17 @@ def transcode_video(broadcast_id):
     try:
         broadcast = Broadcast.objects.get(id=broadcast_id)
         
+        # IMPORTANTE: Actualizar estado a PROCESANDO al comenzar
+        # Esto permite que el frontend vea el progreso en tiempo real
+        broadcast.estado_transcodificacion = 'PROCESANDO'
+        broadcast.save(update_fields=['estado_transcodificacion'])
+        print(f"🎬 Iniciando transcodificación de broadcast {broadcast.id}")
+        
         # Verificar que existe el archivo original
         if not broadcast.archivo_original:
             broadcast.estado_transcodificacion = 'ERROR'
-            broadcast.save()
+            broadcast.last_error = 'No hay archivo original'
+            broadcast.save(update_fields=['estado_transcodificacion', 'last_error'])
             return {'error': 'No hay archivo original'}
 
         # Obtener ruta física segura del archivo original
@@ -280,13 +287,13 @@ def transcode_video(broadcast_id):
         broadcast.save(update_fields=['thumbnail', 'pizarra_thumbnail'])
 
         # ====================================================================
-        # PASO 3: TRANSCODIFICAR A H.265/HEVC (para playback)
+        # PASO 3: TRANSCODIFICAR A H.264 (archivo de soporte para reproducción)
         # ====================================================================
-        output_hevc_filename = f"{short_id}_h265.mp4"
-        output_hevc_path = support_dir / output_hevc_filename
+        output_h264_filename = f"{short_id}_h264.mp4"
+        output_h264_path = support_dir / output_h264_filename
 
-        # Construir comando base para transcodificación HEVC
-        command_hevc = [FFMPEG_BIN]
+        # Construir comando base para transcodificación H.264
+        command_h264 = [FFMPEG_BIN]
 
         # Agregar aceleración de hardware si está disponible
         if HW_ENCODER_CONFIG['hwaccel']:
@@ -294,28 +301,28 @@ def transcode_video(broadcast_id):
                 # VideoToolbox no requiere -hwaccel explícito
                 pass
             elif HW_ENCODER_CONFIG['type'] == 'nvenc':
-                command_hevc.extend(['-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda'])
+                command_h264.extend(['-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda'])
             elif HW_ENCODER_CONFIG['type'] == 'vaapi':
-                command_hevc.extend(['-hwaccel', 'vaapi', '-vaapi_device', HW_ENCODER_CONFIG['vaapi_device']])
+                command_h264.extend(['-hwaccel', 'vaapi', '-vaapi_device', HW_ENCODER_CONFIG['vaapi_device']])
 
         # Flags globales para mayor robustez de timestamps
-        command_hevc.extend(['-fflags', '+genpts'])
+        command_h264.extend(['-fflags', '+genpts'])
 
-        command_hevc.extend([
+        command_h264.extend([
             '-i', str(input_path),
-            '-c:v', HW_ENCODER_CONFIG['h265_encoder'],  # Usar encoder HEVC detectado
+            '-c:v', HW_ENCODER_CONFIG['h264_encoder'],  # Usar encoder H.264 detectado
         ])
 
         # Configuración según el tipo de encoder
         if HW_ENCODER_CONFIG['type'] == 'videotoolbox':
-            command_hevc.extend([
+            command_h264.extend([
                 '-b:v', '6M',        # Bitrate objetivo 6 Mbps
                 '-maxrate', '8M',    # Máximo 8 Mbps
                 '-bufsize', '16M',
                 '-allow_sw', '1',    # Permitimos fallback a software
             ])
         elif HW_ENCODER_CONFIG['type'] == 'nvenc':
-            command_hevc.extend([
+            command_h264.extend([
                 '-preset', 'p5',     # p5 = buena calidad/velocidad
                 '-tune', 'hq',
                 '-rc:v', 'vbr',
@@ -325,61 +332,58 @@ def transcode_video(broadcast_id):
                 '-bufsize', '16M',
                 '-spatial_aq', '1',
                 '-aq-strength', '8',
-                '-profile:v', 'main',
+                '-profile:v', 'high',
             ])
         elif HW_ENCODER_CONFIG['type'] == 'vaapi':
-            # Opción por QP; alternativa: usar -b:v 5M -maxrate 8M -bufsize 16M
-            command_hevc.extend([
-                '-qp', '24',
+            command_h264.extend([
+                '-qp', '22',
             ])
-        else:  # software (x265)
-            command_hevc.extend([
+        else:  # software (x264)
+            command_h264.extend([
                 '-preset', 'faster',
-                '-crf', '27',
-                '-x265-params', 'aq-mode=2:psy-rd=2',
+                '-crf', '23',
                 '-threads', '0',
             ])
 
-        command_hevc.extend([
+        command_h264.extend([
             '-vf', 'yadif=0:-1:0,scale=-2:1080,setsar=1',
             '-pix_fmt', 'yuv420p',
-            '-tag:v', 'hvc1',            # Mejor compatibilidad en ecosistema Apple
             '-c:a', 'aac',
             '-ac', '2',
             '-b:a', '192k',
             '-movflags', '+faststart',
             '-max_muxing_queue_size', '4096',
-            str(output_hevc_path),
+            str(output_h264_path),
             '-y'
         ])
 
-        print(f"🎬 Transcodificando H.265 con {HW_ENCODER_CONFIG['type'].upper()}: {' '.join(command_hevc)}")
+        print(f"🎬 Transcodificando H.264 con {HW_ENCODER_CONFIG['type'].upper()}: {' '.join(command_h264)}")
 
-        # Ejecutar FFmpeg para HEVC
+        # Ejecutar FFmpeg para H.264
         subprocess.run(
-            command_hevc,
+            command_h264,
             check=True,
             capture_output=True
         )
-        print(f"✓ H.265 completado: {output_hevc_path}")
+        print(f"✓ H.264 completado: {output_h264_path}")
 
         # ====================================================================
         # PASO 4: GUARDAR RUTAS EN EL MODELO Y MARCAR COMO COMPLETADO
         # ====================================================================
         print(f"💾 Guardando rutas en base de datos...")
-        # Usar HEVC como proxy de reproducción
-        broadcast.ruta_proxy = f'support/{output_hevc_filename}'
-        # Ya no mantenemos H.264
-        broadcast.ruta_h264 = None
+        # Usar H.264 como archivo de soporte
+        broadcast.ruta_h264 = f'support/{output_h264_filename}'
+        # Proxy/HEVC no se genera en este flujo base
+        broadcast.ruta_proxy = None
         broadcast.estado_transcodificacion = 'COMPLETADO'
         broadcast.last_error = None
         broadcast.save(update_fields=['ruta_proxy', 'ruta_h264', 'estado_transcodificacion', 'last_error'])
-        print(f"✅ Transcodificación HEVC completada exitosamente para broadcast {broadcast.id}")
+        print(f"✅ Transcodificación H.264 completada exitosamente para broadcast {broadcast.id}")
 
         return {
             'status': 'success',
             'broadcast_id': str(broadcast.id),
-            'output_hevc_path': str(output_hevc_path),
+            'output_h264_path': str(output_h264_path),
             'thumbnail_path': str(thumbnail_path),
             'pizarra_path': str(pizarra_path)
         }

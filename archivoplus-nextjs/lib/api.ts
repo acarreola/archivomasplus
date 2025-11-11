@@ -14,3 +14,16 @@ export function setAuthToken(token?: string) {
     delete api.defaults.headers.common['Authorization'];
   }
 }
+
+// Helper para codificación personalizada de un broadcast
+export async function encodeBroadcast(params: {
+  broadcastId: string;
+  settings: any;
+  presetId?: string;
+}) {
+  return api.post('/broadcasts/encode/', {
+    broadcast_id: params.broadcastId,
+    settings: params.settings,
+    preset_id: params.presetId || 'custom',
+  });
+}

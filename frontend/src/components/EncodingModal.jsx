@@ -132,18 +132,20 @@ export default function EncodingModal({ comercial, onClose, onSuccess }) {
       }
 
       const encodingData = {
-        comercial_id: comercial.id,
-        preset: activeTab === 'presets' ? selectedPreset : 'custom',
-        formato: settings.formato,
-        codec: settings.codec,
-        resolution: resolution,
-        fps: settings.fps,
-        bitrate_video: settings.bitrate_video,
-        bitrate_audio: settings.bitrate_audio,
-        aspect_ratio: settings.aspect_ratio
+        broadcast_id: comercial.id, // API espera broadcast_id
+        settings: {
+          formato: settings.formato,
+          codec: settings.codec,
+          resolution: resolution,
+          fps: settings.fps,
+          bitrate_video: settings.bitrate_video,
+          bitrate_audio: settings.bitrate_audio,
+          aspect_ratio: settings.aspect_ratio,
+        },
+        preset_id: activeTab === 'presets' ? selectedPreset : 'custom'
       };
 
-      await axios.post('http://localhost:8000/api/broadcasts/encode/', encodingData);
+      await axios.post('/api/broadcasts/encode/', encodingData);
 
       if (onSuccess) {
         onSuccess();
@@ -151,7 +153,7 @@ export default function EncodingModal({ comercial, onClose, onSuccess }) {
       onClose();
     } catch (err) {
       console.error('Error codificar:', err);
-      setError('Error iniciar la codificación. Please intenta de nuevo.');
+  setError('Error iniciar la codificación: ' + (err.response?.data?.error || err.message));
     } finally {
       setIsEncoding(false);
     }
