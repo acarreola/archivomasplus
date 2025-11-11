@@ -26,6 +26,9 @@ flower>=2.0.1  # Celery monitoring tool (opcional)
 # Media Processing
 # -----------------------------------------------------------------------------
 Pillow>=10.1.0  # Image processing
+pillow-heif>=0.13.0  # HEIC/HEIF support for iOS images
+rawpy>=0.18.1  # RAW image format support (Canon, Nikon, Sony, etc.)
+imageio>=2.31.0  # Additional image format support
 
 # -----------------------------------------------------------------------------
 # Production Server

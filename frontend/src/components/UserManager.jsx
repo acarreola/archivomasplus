@@ -49,7 +49,7 @@ export default function UserManager() {
                 </td>
                 <td className="px-6 py-4 text-sm space-x-2">
                   <button className="text-indigo-600 hover:text-indigo-900">Edit</button>
-                  <button className="text-red-600 hover:text-red-900">Borrar</button>
+                  <button className="text-red-600 hover:text-red-900">Delete</button>
                 </td>
               </tr>
             ))}

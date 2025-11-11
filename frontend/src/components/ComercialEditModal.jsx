@@ -162,19 +162,21 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
             </form>
           ) : activeTab === 'preview' ? (
             /* Vista Preview - Thumbnail on top, info below */
-            <div className="max-w-3xl mx-auto space-y-6">
-              {/* Thumbnail Preview - 30% smaller */}
+            <div className="max-w-4xl mx-auto space-y-6">
+              {/* Thumbnail Preview - Tamaño estándar 16:9 */}
               <div className="bg-white border-2 border-gray-200 rounded-lg p-6 shadow-sm">
                 <h3 className="font-semibold text-gray-800 mb-4 text-lg uppercase tracking-wide border-b-2 border-blue-500 pb-2">Thumbnail Preview</h3>
                 <div className="flex justify-center">
                   {comercial.thumbnail_url ? (
-                    <img 
-                      src={comercial.thumbnail_url} 
-                      alt="Thumbnail" 
-                      className="w-[70%] rounded border-2 border-gray-300 shadow-sm"
-                    />
+                    <div className="w-full" style={{ aspectRatio: '16/9', maxHeight: '60vh' }}>
+                      <img 
+                        src={comercial.thumbnail_url} 
+                        alt="Thumbnail" 
+                        className="w-full h-full object-contain rounded border-2 border-gray-300 shadow-sm"
+                      />
+                    </div>
                   ) : (
-                    <div className="w-[70%] aspect-video bg-gray-100 rounded flex items-center justify-center text-gray-400 border-2 border-dashed border-gray-300">
+                    <div className="w-full bg-gray-100 rounded flex items-center justify-center text-gray-400 border-2 border-dashed border-gray-300" style={{ aspectRatio: '16/9', maxHeight: '60vh' }}>
                       <div className="text-center">
                         <svg className="w-16 h-16 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -263,17 +265,18 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
               <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
                 {/* Left Column: Pizarra (60% - 3 cols) */}
                 <div className="md:col-span-3 space-y-4">
-                  {/* Pizarra Thumbnail */}
+                  {/* Pizarra Thumbnail - Tamaño estándar 16:9 */}
                   <div className="bg-white border-2 border-gray-200 rounded-lg overflow-hidden shadow-lg">
                     {comercial.pizarra_thumbnail_url ? (
-                      <img 
-                        src={comercial.pizarra_thumbnail_url} 
-                        alt="Pizarra" 
-                        className="w-full"
-                        style={{ objectFit: 'contain' }}
-                      />
+                      <div className="w-full" style={{ aspectRatio: '16/9', maxHeight: '60vh' }}>
+                        <img 
+                          src={comercial.pizarra_thumbnail_url} 
+                          alt="Pizarra" 
+                          className="w-full h-full object-contain"
+                        />
+                      </div>
                     ) : (
-                      <div className="w-full aspect-video bg-gray-100 flex items-center justify-center text-gray-400">
+                      <div className="w-full bg-gray-100 flex items-center justify-center text-gray-400" style={{ aspectRatio: '16/9', maxHeight: '60vh' }}>
                         <div className="text-center p-8">
                           <svg className="w-16 h-16 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />

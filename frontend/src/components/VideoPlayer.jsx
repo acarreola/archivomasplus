@@ -13,7 +13,8 @@ export default function VideoPlayer({ src, poster, onPlay, className = '', showS
       const player = videojs(videoElement, {
         controls: true,
         responsive: true,
-        fluid: true,
+        fluid: false,
+        fill: true,
         preload: 'auto',
         playbackRates: [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2],
         controlBar: {

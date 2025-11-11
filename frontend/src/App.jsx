@@ -1,11 +1,13 @@
 import { useState } from 'react';
-import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom';
+import { createBrowserRouter, Navigate, RouterProvider, Outlet } from 'react-router-dom';
+import { AuthProvider } from './context/AuthContext';
+import { LanguageProvider } from './context/LanguageContext';
 import Login from './components/Login';
 import ResetPassword from './components/ResetPassword';
 import RequireAuth from './components/RequireAuth';
 import Navbar from './components/Navbar';
 import RepositoriosManager from './components/RepositoriosManager';
-import RepoContentPage from './components/RepoContentPage'; // Importar la nueva página
+import RepoContentPage from './components/RepoContentPage';
 import UsuariosManager from './components/UsuariosManager';
 import ComercialesManager from './components/ComercialesManager';
 import ModulosManager from './components/ModulosManager';
@@ -15,6 +17,11 @@ import VinculacionesManager from './components/VinculacionesManager';
 import HistoryManager from './components/HistoryManager';
 import SharedPlayer from './components/SharedPlayer';
 import SMTPConfigManager from './components/SMTPConfigManager';
+
+// Root layout - just outlet, providers are in App
+function RootLayout() {
+  return <Outlet />;
+}
 
 // Admin area component
 function AdminArea() {
@@ -145,62 +152,71 @@ function AdminArea() {
 
 function App() {
   const router = createBrowserRouter([
-    // Public routes
-    { path: '/shared/:linkId', element: <SharedPlayer /> },
-    { path: '/login', element: <Login /> },
-    { path: '/reset-password/:uid/:token', element: <ResetPassword /> },
-
-    // Protected home route
     {
-      path: '/',
-      element: (
-        <RequireAuth>
-          <div className="h-screen w-screen overflow-hidden flex flex-col">
-            <Navbar isAdminArea={false} />
-            <div className="flex-1 overflow-hidden">
-              <ComercialesManager />
-            </div>
-          </div>
-        </RequireAuth>
-      ),
-    },
+      element: <RootLayout />,
+      children: [
+        // Public routes
+        { path: '/shared/:linkId', element: <SharedPlayer /> },
+        { path: '/login', element: <Login /> },
+        { path: '/reset-password/:uid/:token', element: <ResetPassword /> },
 
-    // Admin route
-    {
-      path: '/admin',
-      element: (
-        <RequireAuth>
-          <AdminArea />
-        </RequireAuth>
-      ),
-    },
-
-    // Nueva ruta para el contenido del repositorio
-    {
-      path: '/repositorio/:repoId', // Nueva ruta para el contenido del repositorio
-      element: (
-        <RequireAuth>
-          <div className="bg-gray-100 min-h-screen">
-            <Navbar isAdminArea={true} />
-            <main className="flex-1 overflow-hidden p-6">
-              <div className="bg-white rounded-lg shadow-lg h-full">
-                <RepoContentPage />
+        // Protected home route
+        {
+          path: '/',
+          element: (
+            <RequireAuth>
+              <div className="h-screen w-screen overflow-hidden flex flex-col">
+                <Navbar isAdminArea={false} />
+                <div className="flex-1 overflow-hidden">
+                  <ComercialesManager />
+                </div>
               </div>
-            </main>
-          </div>
-        </RequireAuth>
-      ),
-    },
+            </RequireAuth>
+          ),
+        },
 
-    // Catch-all -> redirect to home
-    { path: '*', element: <Navigate to="/" replace /> },
+        // Admin route
+        {
+          path: '/admin',
+          element: (
+            <RequireAuth>
+              <AdminArea />
+            </RequireAuth>
+          ),
+        },
+
+        // Nueva ruta para el contenido del repositorio
+        {
+          path: '/repositorio/:repoId',
+          element: (
+            <RequireAuth>
+              <div className="bg-gray-100 min-h-screen">
+                <Navbar isAdminArea={true} />
+                <main className="flex-1 overflow-hidden p-6">
+                  <div className="bg-white rounded-lg shadow-lg h-full">
+                    <RepoContentPage />
+                  </div>
+                </main>
+              </div>
+            </RequireAuth>
+          ),
+        },
+
+        // Catch-all -> redirect to home
+        { path: '*', element: <Navigate to="/" replace /> },
+      ],
+    },
   ]);
 
   return (
-    <RouterProvider
-      router={router}
-      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-    />
+    <LanguageProvider>
+      <AuthProvider>
+        <RouterProvider
+          router={router}
+          future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+        />
+      </AuthProvider>
+    </LanguageProvider>
   );
 }
 

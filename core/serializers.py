@@ -1,7 +1,8 @@
 import json
+import os
 from django.contrib.auth.hashers import make_password
 from rest_framework import serializers
-from .models import Repositorio, Agencia, Broadcast, Audio, CustomUser, SharedLink, Directorio, RepositorioPermiso, Modulo, Perfil, SistemaInformacion
+from .models import Repositorio, Agencia, Broadcast, Audio, CustomUser, SharedLink, Directorio, RepositorioPermiso, Modulo, Perfil, SistemaInformacion, ImageAsset, StorageAsset, ProcessingError
 
 class PerfilSerializer(serializers.ModelSerializer):
     class Meta:
@@ -624,3 +625,188 @@ class SistemaInformacionSerializer(serializers.ModelSerializer):
         model = SistemaInformacion
         fields = ['id', 'version', 'release_date', 'updates', 'fecha_creacion', 'is_current']
         read_only_fields = ['fecha_creacion']
+
+class ImageAssetSerializer(serializers.ModelSerializer):
+    repositorio_nombre = serializers.CharField(source='repositorio.nombre', read_only=True)
+    directorio_nombre = serializers.CharField(source='directorio.nombre', read_only=True, allow_null=True)
+    creado_por_username = serializers.CharField(source='creado_por.username', read_only=True, allow_null=True)
+    thumbnail_url = serializers.SerializerMethodField()
+    imagen_web_url = serializers.SerializerMethodField()
+    file_size = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = ImageAsset
+        fields = [
+            'id',
+            'repositorio',
+            'repositorio_nombre',
+            'directorio',
+            'directorio_nombre',
+            'modulo',
+            'creado_por',
+            'creado_por_username',
+            'archivo_original',
+            'imagen_web',
+            'imagen_web_url',
+            'nombre_original',
+            'tipo_archivo',
+            'thumbnail',
+            'thumbnail_url',
+            'file_size',
+            'metadata',
+            'estado',
+            'last_error',
+            'fecha_subida'
+        ]
+    
+    def get_thumbnail_url(self, obj):
+        if obj.thumbnail:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.thumbnail.url)
+        return None
+    
+    def get_imagen_web_url(self, obj):
+        if obj.imagen_web:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.imagen_web.url)
+        return None
+    
+    def get_file_size(self, obj):
+        """Retorna el tamaño del archivo original en bytes"""
+        try:
+            if obj.archivo_original and hasattr(obj.archivo_original, 'size'):
+                return obj.archivo_original.size
+        except (FileNotFoundError, OSError):
+            # Archivo no existe en el storage, retornar 0
+            pass
+        return 0
+
+
+class StorageAssetSerializer(serializers.ModelSerializer):
+    repositorio_nombre = serializers.CharField(source='repositorio.nombre', read_only=True)
+    directorio_nombre = serializers.CharField(source='directorio.nombre', read_only=True, allow_null=True)
+    creado_por_username = serializers.CharField(source='creado_por.username', read_only=True, allow_null=True)
+    thumbnail_url = serializers.SerializerMethodField()
+    archivo_url = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = StorageAsset
+        fields = [
+            'id',
+            'repositorio',
+            'repositorio_nombre',
+            'directorio',
+            'directorio_nombre',
+            'modulo',
+            'creado_por',
+            'creado_por_username',
+            'archivo_original',
+            'archivo_url',
+            'nombre_original',
+            'tipo_archivo',
+            'file_size',
+            'thumbnail',
+            'thumbnail_url',
+            'metadata',
+            'estado',
+            'last_error',
+            'fecha_subida'
+        ]
+    
+    def validate(self, attrs):
+        """Prevent duplicates by name + extension within the same repo/modulo/directorio."""
+        # Resolve IDs for scope
+        repo = attrs.get('repositorio') or self.initial_data.get('repositorio')
+        repo_id = getattr(repo, 'id', None) or (int(repo) if str(repo).isdigit() else None)
+        modulo = attrs.get('modulo') or self.initial_data.get('modulo')
+        modulo_id = getattr(modulo, 'id', None) or (int(modulo) if (modulo is not None and str(modulo).isdigit()) else None)
+        directorio = attrs.get('directorio') or self.initial_data.get('directorio')
+        directorio_id = getattr(directorio, 'id', None) or (int(directorio) if (directorio not in [None, ''] and str(directorio).isdigit()) else None)
+
+        # Determine original name (base without extension) and extension
+        uploaded = attrs.get('archivo_original')
+        nombre_original = attrs.get('nombre_original') or self.initial_data.get('nombre_original')
+        ext = attrs.get('tipo_archivo') or self.initial_data.get('tipo_archivo')
+
+        if uploaded and hasattr(uploaded, 'name'):
+            fname = uploaded.name
+            base, file_ext = os.path.splitext(fname)
+            # Frontend usually sends nombre_original sin extensión; ensure we keep base
+            nombre_original = nombre_original or base
+            ext = file_ext or ext
+
+        # Normalize extension with leading dot and lowercase
+        if ext:
+            ext = ext if str(ext).startswith('.') else f'.{ext}'
+            ext = ext.lower()
+
+        # If we have scope and name+ext, check for existing
+        if repo_id and nombre_original and ext:
+            from .models import StorageAsset
+            qs = StorageAsset.objects.filter(
+                repositorio_id=repo_id,
+                nombre_original__iexact=str(nombre_original).strip(),
+                tipo_archivo__iexact=ext,
+            )
+            if modulo_id is not None:
+                qs = qs.filter(modulo_id=modulo_id)
+            else:
+                qs = qs.filter(modulo__isnull=True)
+            if directorio_id is not None:
+                qs = qs.filter(directorio_id=directorio_id)
+            else:
+                qs = qs.filter(directorio__isnull=True)
+
+            # Exclude self on updates
+            if getattr(self, 'instance', None) is not None:
+                qs = qs.exclude(pk=self.instance.pk)
+
+            if qs.exists():
+                raise serializers.ValidationError({
+                    'non_field_errors': [
+                        f"Ya existe un archivo con el mismo nombre y extensión en este directorio: {nombre_original}{ext}"
+                    ]
+                })
+
+        # Ensure nombre_original is set if uploaded file provided
+        if uploaded and nombre_original:
+            attrs['nombre_original'] = nombre_original
+        if ext:
+            attrs['tipo_archivo'] = ext
+        return attrs
+    
+    def get_thumbnail_url(self, obj):
+        if obj.thumbnail:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.thumbnail.url)
+        return None
+
+
+class ProcessingErrorSerializer(serializers.ModelSerializer):
+    repositorio_nombre = serializers.CharField(source='repositorio.nombre', read_only=True)
+    modulo_tipo = serializers.CharField(source='modulo.tipo', read_only=True)
+    directorio_nombre = serializers.CharField(source='directorio.nombre', read_only=True)
+    broadcast_id = serializers.UUIDField(source='broadcast.id', read_only=True)
+    audio_id = serializers.UUIDField(source='audio.id', read_only=True)
+    imagen_id = serializers.UUIDField(source='imagen.id', read_only=True)
+    storage_file_id = serializers.UUIDField(source='storage_file.id', read_only=True)
+    short_error = serializers.CharField(source='short_error', read_only=True)
+
+    class Meta:
+        model = ProcessingError
+        fields = [
+            'id', 'repositorio', 'repositorio_nombre', 'modulo', 'modulo_tipo', 'directorio', 'directorio_nombre',
+            'broadcast', 'broadcast_id', 'audio', 'audio_id', 'imagen', 'imagen_id', 'storage_file', 'storage_file_id',
+            'stage', 'file_name', 'error_message', 'short_error', 'extra', 'resolved', 'fecha_creacion'
+        ]
+        read_only_fields = ['fecha_creacion']
+    
+    def get_archivo_url(self, obj):
+        if obj.archivo_original:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.archivo_original.url)
+        return None

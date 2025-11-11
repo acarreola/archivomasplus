@@ -149,7 +149,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # settings.py
 CORS_ALLOWED_ORIGINS = os.getenv(
     'CORS_ALLOWED_ORIGINS',
-    'http://localhost:5173,http://127.0.0.1:5173'
+    'http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000'
 ).split(',')
 
 # Allow credentials (cookies, sessions) for authentication
@@ -179,16 +179,24 @@ CSRF_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_SECURE = os.getenv('CSRF_COOKIE_SECURE', 'False') == 'True'  # True in production with HTTPS
 CSRF_TRUSTED_ORIGINS = os.getenv(
     'CSRF_TRUSTED_ORIGINS',
-    'http://localhost:5173,http://127.0.0.1:5173'
+    'http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000'
 ).split(',')
 
 # settings.py
 MEDIA_URL = '/media/'
-# Allow overriding MEDIA_ROOT via env for non-Docker or custom setups.
-# Inside Docker, we bind-mount the host path to /app/media, so the default works.
-# To override, set MEDIA_CONTAINER_PATH in the environment (absolute path inside the container/host process).
-# Default: use external SSD for media storage
-MEDIA_ROOT = Path(os.getenv('MEDIA_CONTAINER_PATH') or '/Volumes/SSD/media')
+# MEDIA_ROOT con fallback automático si el path configurado no existe o no es escribible
+_configured_media = Path(os.getenv('MEDIA_CONTAINER_PATH') or '/Volumes/SSD/media')
+try:
+    if not _configured_media.exists():
+        _configured_media.mkdir(parents=True, exist_ok=True)
+    # Verificar permiso de escritura
+    if not os.access(_configured_media, os.W_OK):
+        raise PermissionError(f"MEDIA_ROOT no escribible: {_configured_media}")
+    MEDIA_ROOT = _configured_media
+except Exception:
+    # Fallback a carpeta local del proyecto
+    MEDIA_ROOT = BASE_DIR / 'media'
+    MEDIA_ROOT.mkdir(parents=True, exist_ok=True)
 
 # REST Framework settings for authentication
 REST_FRAMEWORK = {
@@ -243,7 +251,7 @@ EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')  # Use App Password f
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'noreply@archivoplus.local')
 
 # Frontend URL for password reset links
-FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
 
 # Cache configuration (uses Redis for rate limiting)
 CACHE_OPTIONS = {}

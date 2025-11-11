@@ -6,7 +6,11 @@ from pathlib import Path
 from celery import shared_task
 from django.conf import settings
 from django.utils import timezone
-from .models import Broadcast
+from .models import Broadcast, ProcessingError
+
+# Permitir configurar rutas a binarios FFmpeg/FFprobe vía variables de entorno
+FFMPEG_BIN = os.getenv('FFMPEG_BIN', 'ffmpeg')
+FFPROBE_BIN = os.getenv('FFPROBE_BIN', 'ffprobe')
 
 def detect_hardware_encoder():
     """
@@ -27,7 +31,7 @@ def detect_hardware_encoder():
     try:
         # Verificar encoders disponibles en FFmpeg
         result = subprocess.run(
-            ['ffmpeg', '-hide_banner', '-encoders'],
+            [FFMPEG_BIN, '-hide_banner', '-encoders'],
             capture_output=True,
             text=True,
             timeout=5
@@ -39,7 +43,7 @@ def detect_hardware_encoder():
         if system == 'darwin' and 'h264_videotoolbox' in encoders_output:
             print("🔍 Probando VideoToolbox (macOS GPU)...")
             test_vt = subprocess.run(
-                ['ffmpeg', '-hide_banner', '-f', 'lavfi', '-i', 'nullsrc=s=256x256:d=0.1', '-c:v', 'h264_videotoolbox', '-b:v', '1M', '-f', 'null', '-'],
+                [FFMPEG_BIN, '-hide_banner', '-f', 'lavfi', '-i', 'nullsrc=s=256x256:d=0.1', '-c:v', 'h264_videotoolbox', '-b:v', '1M', '-f', 'null', '-'],
                 capture_output=True,
                 text=True,
                 timeout=5
@@ -57,7 +61,7 @@ def detect_hardware_encoder():
         if 'h264_nvenc' in encoders_output:
             print("🔍 Probando NVENC (NVIDIA GPU)...")
             test_cuda = subprocess.run(
-                ['ffmpeg', '-hide_banner', '-hwaccel', 'cuda', '-f', 'lavfi', '-i', 'nullsrc=s=256x256:d=0.1', '-f', 'null', '-'],
+                [FFMPEG_BIN, '-hide_banner', '-hwaccel', 'cuda', '-f', 'lavfi', '-i', 'nullsrc=s=256x256:d=0.1', '-f', 'null', '-'],
                 capture_output=True,
                 text=True,
                 timeout=5
@@ -126,7 +130,13 @@ def transcode_video(broadcast_id):
             broadcast.save()
             return {'error': 'No hay archivo original'}
 
-        input_path = broadcast.archivo_original.path
+        # Obtener ruta física segura del archivo original
+        try:
+            input_path = broadcast.archivo_original.path
+        except Exception:
+            input_path = os.path.join(settings.MEDIA_ROOT, str(broadcast.archivo_original))
+        if not os.path.exists(input_path):
+            print(f"⚠️ Archivo original no encontrado inicialmente: {input_path}")
         # Si el archivo no existe exactamente como está guardado (ej. sin extensión),
         # intentamos localizar un archivo en /media/sources que empiece con el mismo nombre base.
         try:
@@ -153,10 +163,10 @@ def transcode_video(broadcast_id):
         
         # Crear directorios de salida si no existen
         support_dir = Path(settings.MEDIA_ROOT) / 'support'
-        support_dir.mkdir(parents=True, exist_ok=True)
-        
         thumbnail_dir = Path(settings.MEDIA_ROOT) / 'thumbnails'
-        thumbnail_dir.mkdir(parents=True, exist_ok=True)
+        pizarra_dir = Path(settings.MEDIA_ROOT) / 'pizarra'
+        for d in (support_dir, thumbnail_dir, pizarra_dir):
+            d.mkdir(parents=True, exist_ok=True)
         
         # Generar nombres de archivo con UUID corto (8 caracteres)
         output_h264_filename = f"{short_id}_h264.mp4"
@@ -167,8 +177,7 @@ def transcode_video(broadcast_id):
         thumbnail_path = thumbnail_dir / thumbnail_filename
         
         # Crear directorio para pizarra thumbnails
-        pizarra_dir = Path(settings.MEDIA_ROOT) / 'pizarra'
-        pizarra_dir.mkdir(parents=True, exist_ok=True)
+    # (creado arriba en bucle)
         
         # Generar nombre del pizarra thumbnail con UUID corto
         pizarra_filename = f"{short_id}_pizarra.jpg"
@@ -179,7 +188,7 @@ def transcode_video(broadcast_id):
         # ====================================================================
         print(f"⏱️  Detectando duración del video...")
         duration_command = [
-            'ffprobe',
+            FFPROBE_BIN,
             '-v', 'error',
             '-show_entries', 'format=duration',
             '-of', 'default=noprint_wrappers=1:nokey=1',
@@ -229,7 +238,7 @@ def transcode_video(broadcast_id):
         
         print(f"📸 Generando thumbnail principal...")
         thumbnail_command = [
-            'ffmpeg',
+            FFMPEG_BIN,
             '-ss', str(thumbnail_time),  # Usar timestamp calculado
             '-i', str(input_path),
             '-vframes', '1',
@@ -248,7 +257,7 @@ def transcode_video(broadcast_id):
 
         print(f"📸 Generando pizarra thumbnail...")
         pizarra_command = [
-            'ffmpeg',
+            FFMPEG_BIN,
             '-ss', str(pizarra_time),  # Usar timestamp calculado
             '-i', str(input_path),
             '-vframes', '1',
@@ -276,7 +285,8 @@ def transcode_video(broadcast_id):
         output_hevc_filename = f"{short_id}_h265.mp4"
         output_hevc_path = support_dir / output_hevc_filename
 
-        command_hevc = ['ffmpeg']
+        # Construir comando base para transcodificación HEVC
+        command_hevc = [FFMPEG_BIN]
 
         # Agregar aceleración de hardware si está disponible
         if HW_ENCODER_CONFIG['hwaccel']:
@@ -395,6 +405,20 @@ def transcode_video(broadcast_id):
                 err = err[-8000:]  # guardar los últimos 8k
             broadcast.last_error = err or f"FFmpeg error (code {e.returncode})"
             broadcast.save(update_fields=['estado_transcodificacion', 'last_error'])
+            # Registrar error
+            try:
+                ProcessingError.objects.create(
+                    repositorio=broadcast.repositorio,
+                    modulo=broadcast.modulo,
+                    directorio=broadcast.directorio,
+                    broadcast=broadcast,
+                    stage='transcode',
+                    file_name=broadcast.nombre_original,
+                    error_message=broadcast.last_error or 'FFmpeg error',
+                    extra={'returncode': e.returncode}
+                )
+            except Exception as _pe:
+                print(f"⚠️ No se pudo registrar ProcessingError (transcode): {_pe}")
         # Log básico para depuración rápida en worker
         try:
             print('✗ FFmpeg error:', e.stderr[:2000])
@@ -416,6 +440,19 @@ def transcode_video(broadcast_id):
                 msg = msg[:8000]
             broadcast.last_error = msg
             broadcast.save(update_fields=['estado_transcodificacion', 'last_error'])
+            try:
+                ProcessingError.objects.create(
+                    repositorio=broadcast.repositorio,
+                    modulo=broadcast.modulo,
+                    directorio=broadcast.directorio,
+                    broadcast=broadcast,
+                    stage='transcode',
+                    file_name=broadcast.nombre_original,
+                    error_message=msg,
+                    extra={}
+                )
+            except Exception as _pe:
+                print(f"⚠️ No se pudo registrar ProcessingError (transcode generic): {_pe}")
         return {'error': str(e)}
 
 
@@ -575,6 +612,20 @@ def encode_custom_video(broadcast_id, encoding_settings, preset_id='custom'):
         # Error de FFmpeg
         error_msg = e.stderr if e.stderr else str(e)
         print(f"❌ Error de FFmpeg: {error_msg}")
+        try:
+            if 'broadcast' in locals():
+                ProcessingError.objects.create(
+                    repositorio=broadcast.repositorio,
+                    modulo=broadcast.modulo,
+                    directorio=broadcast.directorio,
+                    broadcast=broadcast,
+                    stage='encode_custom',
+                    file_name=broadcast.nombre_original,
+                    error_message=str(error_msg)[:8000],
+                    extra={'returncode': e.returncode}
+                )
+        except Exception as _pe:
+            print(f"⚠️ No se pudo registrar ProcessingError (encode_custom FFmpeg): {_pe}")
         return {
             'error': 'FFmpeg falló',
             'stderr': error_msg,
@@ -584,6 +635,20 @@ def encode_custom_video(broadcast_id, encoding_settings, preset_id='custom'):
     except Exception as e:
         # Cualquier otro error
         print(f"❌ Error en codificación: {str(e)}")
+        try:
+            if 'broadcast' in locals():
+                ProcessingError.objects.create(
+                    repositorio=broadcast.repositorio,
+                    modulo=broadcast.modulo,
+                    directorio=broadcast.directorio,
+                    broadcast=broadcast,
+                    stage='encode_custom',
+                    file_name=broadcast.nombre_original,
+                    error_message=str(e)[:8000],
+                    extra={}
+                )
+        except Exception as _pe:
+            print(f"⚠️ No se pudo registrar ProcessingError (encode_custom generic): {_pe}")
         return {'error': str(e)}
 
 
@@ -782,13 +847,29 @@ def process_audio(audio_id):
         }
 
     except Exception as e:
-        print(f"❌ Error procesando audio: {str(e)}")
+        print(f"❌ Error processing audio: {str(e)}")
         
         try:
             audio.estado_procesamiento = 'ERROR'
             audio.save()
-        except:
+        except Exception:
             pass
+        
+        # Registrar error de procesamiento de audio
+        try:
+            if 'audio' in locals():
+                ProcessingError.objects.create(
+                    repositorio=audio.repositorio,
+                    modulo=audio.modulo,
+                    directorio=audio.directorio,
+                    audio=audio,
+                    stage='audio_process',
+                    file_name=audio.nombre_original,
+                    error_message=str(e)[:8000],
+                    extra={}
+                )
+        except Exception as _pe:
+            print(f"⚠️ No se pudo registrar ProcessingError (audio_process): {_pe}")
         
         return {'error': str(e)}
 
@@ -903,4 +984,198 @@ def encode_custom_audio(audio_id, encoding_settings, preset_id='custom'):
 
     except Exception as e:
         print(f"❌ Error en codificación de audio: {str(e)}")
+        # Registrar error
+        try:
+            from .models import Audio
+            audio = Audio.objects.get(id=audio_id)
+            ProcessingError.objects.create(
+                repositorio=audio.repositorio,
+                modulo=audio.modulo,
+                directorio=audio.directorio,
+                audio=audio,
+                stage='audio_encode',
+                file_name=audio.nombre_original,
+                error_message=str(e)[:8000],
+                extra={}
+            )
+        except Exception as _pe:
+            print(f"⚠️ No se pudo registrar ProcessingError (audio_encode): {_pe}")
         return {'error': str(e)}
+
+
+@shared_task
+def process_image(image_id):
+    """
+    Procesa una imagen con soporte para múltiples formatos:
+    - Formatos estándar: JPG, PNG, GIF, BMP, TIFF
+    - Formatos especiales: HEIC/HEIF (iOS), RAW (cámaras profesionales)
+    - Formatos vectoriales: SVG (convertido a raster)
+    
+    1. Guarda el original en sources/
+    2. Crea versión JPG optimizada en support/
+    3. Crea thumbnail
+    """
+    from .models import ImageAsset
+    from PIL import Image
+    from django.core.files.base import ContentFile
+    import io
+    import os
+    
+    try:
+        image_asset = ImageAsset.objects.get(id=image_id)
+        image_asset.estado = 'PROCESANDO'
+        image_asset.save()
+        
+        print(f"📸 Processing image: {image_asset.nombre_original}")
+        
+        original_path = image_asset.archivo_original.path
+        file_ext = os.path.splitext(image_asset.nombre_original)[1].lower()
+        img = None
+        
+        # ============================================
+        # Special format handling
+        # ============================================
+        
+        # HEIC/HEIF (fotos de iPhone/iPad)
+        if file_ext in ['.heic', '.heif']:
+            try:
+                from pillow_heif import register_heif_opener
+                register_heif_opener()
+                img = Image.open(original_path)
+                print(f"✓ HEIC/HEIF detected and converted")
+            except Exception as e:
+                print(f"⚠️ Error processing HEIC/HEIF: {e}")
+                raise
+        
+        # RAW (Canon CR2, Nikon NEF, Sony ARW, etc.)
+        elif file_ext in ['.raw', '.cr2', '.nef', '.arw', '.dng', '.orf', '.rw2', '.pef', '.srw']:
+            try:
+                import rawpy
+                import numpy as np
+                with rawpy.imread(original_path) as raw:
+                    # Process RAW to RGB
+                    rgb = raw.postprocess(
+                        use_camera_wb=True,  # Use camera white balance
+                        half_size=False,     # Maximum quality
+                        no_auto_bright=False,
+                        output_bps=8         # 8 bits per channel
+                    )
+                    # Convert numpy array to PIL Image
+                    img = Image.fromarray(rgb)
+                print(f"✓ RAW detected and converted")
+            except Exception as e:
+                print(f"⚠️ Error processing RAW: {e}")
+                raise
+        
+        # SVG (vector - requires special conversion)
+        elif file_ext == '.svg':
+            try:
+                # SVG cannot be processed directly by PIL
+                # We treat it as a special file that stays as is
+                # but create a placeholder thumbnail
+                img = Image.new('RGB', (800, 600), color=(240, 240, 240))
+                from PIL import ImageDraw, ImageFont
+                draw = ImageDraw.Draw(img)
+                draw.text((400, 300), "SVG", fill=(100, 100, 100), anchor="mm")
+                print(f"✓ SVG detected - using placeholder")
+            except Exception as e:
+                print(f"⚠️ Error processing SVG: {e}")
+                raise
+        
+        # Animated GIF (take first frame)
+        elif file_ext == '.gif':
+            img = Image.open(original_path)
+            # For animated GIFs, take the first frame
+            if hasattr(img, 'n_frames') and img.n_frames > 1:
+                img.seek(0)  # First frame
+                print(f"✓ Animated GIF detected - using first frame")
+        
+        # Formatos estándar (JPG, PNG, BMP, TIFF, etc.)
+        else:
+            img = Image.open(original_path)
+        
+        # ============================================
+        # Conversión a RGB
+        # ============================================
+        if img.mode in ('RGBA', 'LA', 'P'):
+            # Crear fondo blanco para imágenes con transparencia
+            rgb_img = Image.new('RGB', img.size, (255, 255, 255))
+            if img.mode == 'P':
+                img = img.convert('RGBA')
+            rgb_img.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
+            img = rgb_img
+        elif img.mode != 'RGB':
+            img = img.convert('RGB')
+        
+        # ============================================
+        # Guardar metadata
+        # ============================================
+        image_asset.metadata = {
+            'width': img.size[0],
+            'height': img.size[1],
+            'format': getattr(img, 'format', file_ext.replace('.', '').upper()),
+            'mode': img.mode,
+            'original_format': file_ext.replace('.', '').upper()
+        }
+        
+        # ============================================
+        # Crear versión JPG para web (support/)
+        # ============================================
+        web_io = io.BytesIO()
+        # Optimizar tamaño si es muy grande (max 2048px en el lado más largo)
+        max_size = 2048
+        web_img = img.copy()
+        if max(web_img.size) > max_size:
+            web_img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+        
+        # Optimizar: reducir calidad si la imagen es muy grande
+        quality = 85 if web_img.size[0] * web_img.size[1] < 4000000 else 75
+        web_img.save(web_io, format='JPEG', quality=quality, optimize=False)  # optimize=False es más rápido
+        web_io.seek(0)
+        
+        web_filename = f"{Path(image_asset.nombre_original).stem}.jpg"
+        image_asset.imagen_web.save(web_filename, ContentFile(web_io.read()), save=False)
+        
+        # ============================================
+        # Crear thumbnail pequeño (más rápido)
+        # ============================================
+        thumb_img = img.copy()
+        thumb_img.thumbnail((300, 300), Image.Resampling.BILINEAR)  # BILINEAR es más rápido que LANCZOS
+        thumb_io = io.BytesIO()
+        thumb_img.save(thumb_io, format='JPEG', quality=75, optimize=False)  # Menor calidad para thumbnails
+        thumb_io.seek(0)
+        
+        thumb_filename = f"thumb_{Path(image_asset.nombre_original).stem}.jpg"
+        image_asset.thumbnail.save(thumb_filename, ContentFile(thumb_io.read()), save=False)
+        
+        image_asset.estado = 'COMPLETADO'
+        image_asset.save()
+        
+        print(f"✅ Image processed: {image_asset.nombre_original}")
+        return {'status': 'success', 'image_id': str(image_id)}
+        
+    except Exception as e:
+        print(f"❌ Error processing image {image_id}: {str(e)}")
+        try:
+            image_asset = ImageAsset.objects.get(id=image_id)
+            image_asset.estado = 'ERROR'
+            image_asset.last_error = str(e)
+            image_asset.save()
+            try:
+                ProcessingError.objects.create(
+                    repositorio=image_asset.repositorio,
+                    modulo=image_asset.modulo,
+                    directorio=image_asset.directorio,
+                    imagen=image_asset,
+                    stage='image_process',
+                    file_name=image_asset.nombre_original,
+                    error_message=str(e)[:8000],
+                    extra={}
+                )
+            except Exception as _pe:
+                print(f"⚠️ No se pudo registrar ProcessingError (image_process): {_pe}")
+        except:
+            pass
+        return {'status': 'error', 'error': str(e)}
+
+

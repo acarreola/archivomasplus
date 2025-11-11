@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import axios from '../utils/axios';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -27,7 +27,68 @@ function MultiFileUploader(props) {
   const [files, setFiles] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef(null);
+  const folderInputRef = useRef(null);
   const abortControllerRef = useRef(null);
+  // Track existing files (name + extension) to prevent duplicates
+  const existingKeysRef = useRef(new Set());
+  const [preserveFolders, setPreserveFolders] = useState(true);
+  // Cache for created/located directories to reduce API calls
+  const dirCacheRef = useRef(new Map()); // key: `${parentId||0}/${name.toLowerCase()}` => id
+
+  // Helper to build a normalized duplicate key: base name (without extension) + '.' + ext (lowercase)
+  const buildDuplicateKey = (fileName) => {
+    if (!fileName) return '';
+    const parts = fileName.split('.');
+    if (parts.length === 1) return parts[0].toLowerCase();
+    const ext = parts.pop().toLowerCase();
+    const base = parts.join('.').toLowerCase();
+    return `${base}.${ext}`;
+  };
+
+  // Load existing names for this repo/modulo/directorio (only for current scope)
+  useEffect(() => {
+    if (!repositorioId || !moduloId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        // Decide endpoint according to module type
+        let endpoint = '/api/broadcasts/';
+        if (moduloInfo?.tipo === 'audio') endpoint = '/api/audios/';
+        else if (moduloInfo?.tipo === 'images') endpoint = '/api/images/';
+        else if (moduloInfo?.tipo === 'storage') endpoint = '/api/storage/';
+        const params = new URLSearchParams();
+        params.append('repositorio', repositorioId);
+        params.append('modulo', moduloId);
+        // Directory filter if provided
+        if (dirId) params.append('directorio', dirId);
+        const url = `${endpoint}?${params.toString()}`;
+        const res = await axios.get(url);
+        if (cancelled) return;
+        const set = new Set();
+        (res.data || []).forEach(item => {
+          // For images/storage we may have nombre_original or nombre
+          const raw = item.nombre_original || item.nombre || item.archivo_original || '';
+          if (!raw) return;
+            // raw might come without extension in some modules (broadcast uses nombre_original sin extension en form?)
+          // Attempt to extract extension from archivo_original if nombre_original lacks it
+          let nameForKey = raw;
+          if (!/\.[a-zA-Z0-9]{1,6}$/.test(raw) && item.archivo_original && /\.[a-zA-Z0-9]{1,6}$/.test(item.archivo_original)) {
+            const urlParts = item.archivo_original.split('/').pop();
+            if (urlParts && /\.[a-zA-Z0-9]{1,6}$/.test(urlParts)) {
+              nameForKey = urlParts;
+            }
+          }
+          set.add(buildDuplicateKey(nameForKey));
+        });
+        existingKeysRef.current = set;
+        // eslint-disable-next-line no-console
+        console.log('🔐 Loaded existing file keys to prevent duplicates:', set.size);
+      } catch (e) {
+        console.warn('No se pudo cargar lista para validar duplicados', e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [repositorioId, moduloId, dirId, moduloInfo]);
 
   const handleDragEnter = (e) => {
     e.preventDefault();
@@ -97,7 +158,7 @@ function MultiFileUploader(props) {
     return 'files';
   };
 
-  const handleDrop = (e) => {
+  const handleDrop = async (e) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
@@ -106,16 +167,106 @@ function MultiFileUploader(props) {
     console.log('🎯 handleDrop - formatos_permitidos:', moduloInfo?.formatos_permitidos);
     console.log('🎯 handleDrop - accept attribute:', getAcceptAttribute());
 
-    const droppedFiles = Array.from(e.dataTransfer.files);
+    // Process both files and folders from drag & drop
+    const items = e.dataTransfer.items;
+
+    if (!items || items.length === 0) {
+      // Fallback to files if items not available
+      const droppedFiles = Array.from(e.dataTransfer.files);
+      processFiles(droppedFiles, false);
+      return;
+    }
+
+    // Process items (supports folders)
+     // Process all items (files and folders) in parallel
+     const promises = [];
+
+     for (let i = 0; i < items.length; i++) {
+       const item = items[i].webkitGetAsEntry?.() || items[i].getAsEntry?.();
+
+       if (item) {
+         if (item.isFile) {
+           // Single file
+           const file = items[i].getAsFile();
+           if (file) {
+             promises.push(Promise.resolve([{ file, relPath: file.name }]));
+           }
+         } else if (item.isDirectory) {
+           // Folder - read recursively
+           promises.push(readDirectoryRecursively(item, item.name));
+         }
+       } else {
+         // Fallback for browsers without FileSystemEntry API
+         const file = items[i].getAsFile();
+         if (file) {
+           promises.push(Promise.resolve([{ file, relPath: file.name }]));
+         }
+       }
+     }
+
+     // Wait for all folders and files to be processed
+     const results = await Promise.all(promises);
+     const allFiles = results.flat();
+
+    // Validate and add files
+    processFiles(allFiles.map(f => f.file), true, allFiles);
+  };
+
+  // Helper function to read directory recursively
+  const readDirectoryRecursively = async (directoryEntry, basePath = '') => {
+    const files = [];
+    const reader = directoryEntry.createReader();
     
-    // Validar files con el módulo
+    return new Promise((resolve, reject) => {
+      const readEntries = () => {
+        reader.readEntries(async (entries) => {
+          if (entries.length === 0) {
+            // Done reading this directory
+            resolve(files);
+            return;
+          }
+
+          // Process each entry
+          for (const entry of entries) {
+            if (entry.isFile) {
+              // Get the file
+              const file = await new Promise((res, rej) => {
+                entry.file(res, rej);
+              });
+              const relPath = basePath ? `${basePath}/${file.name}` : file.name;
+              files.push({ file, relPath });
+            } else if (entry.isDirectory) {
+              // Recursively read subdirectory
+              const subPath = basePath ? `${basePath}/${entry.name}` : entry.name;
+              const subFiles = await readDirectoryRecursively(entry, subPath);
+              files.push(...subFiles);
+            }
+          }
+
+          // Continue reading (directories may return entries in batches)
+          readEntries();
+        }, reject);
+      };
+
+      readEntries();
+    });
+  };
+
+  // Helper to process and validate files
+  const processFiles = (files, hasRelPath = false, wrappedFiles = null) => {
     const validFiles = [];
     const invalidFiles = [];
 
-    droppedFiles.forEach(file => {
+    files.forEach((file, index) => {
       const validation = isFileAllowed(file);
       if (validation.allowed) {
-        validFiles.push(file);
+        if (hasRelPath && wrappedFiles) {
+          // Use the wrapped file with relPath
+          validFiles.push(wrappedFiles[index]);
+        } else {
+          // Wrap the file
+          validFiles.push({ file, relPath: file.webkitRelativePath || file.name });
+        }
       } else {
         invalidFiles.push({ name: file.name, reason: validation.reason });
       }
@@ -135,44 +286,93 @@ function MultiFileUploader(props) {
 
   const handleFileSelect = (e) => {
     const selectedFiles = Array.from(e.target.files);
-    
-    // Validar files con el módulo
-    const validFiles = [];
-    const invalidFiles = [];
+    const wrapped = selectedFiles.map(f => ({ 
+      file: f, 
+      relPath: f.webkitRelativePath || f.name 
+    }));
+    processFiles(selectedFiles, true, wrapped);
+  };
 
-    selectedFiles.forEach(file => {
-      const validation = isFileAllowed(file);
-      if (validation.allowed) {
-        validFiles.push(file);
-      } else {
-        invalidFiles.push({ name: file.name, reason: validation.reason });
-      }
-    });
-
-    if (invalidFiles.length > 0) {
-      const message = `The following files are not allowed for the selected module:\n\n${
-        invalidFiles.map(f => `• ${f.name}\n  ${f.reason}`).join('\n\n')
-      }`;
-      alert(message);
-    }
-
-    if (validFiles.length > 0) {
-      addFiles(validFiles);
-    }
+  const handleFolderSelect = (e) => {
+    const selectedFiles = Array.from(e.target.files);
+    if (!selectedFiles || selectedFiles.length === 0) return;
+    const wrapped = selectedFiles.map(f => ({ 
+      file: f, 
+      relPath: f.webkitRelativePath || f.name 
+    }));
+    processFiles(selectedFiles, true, wrapped);
   };
 
   const addFiles = (newFiles) => {
-    const filesWithMetadata = newFiles.map(file => ({
-      file,
-      id: `${file.name}-${Date.now()}-${Math.random()}`,
-      name: file.name,
-      size: file.size,
-      status: 'pending', // pending, uploading, completed, error
+    const skipped = [];
+    const accepted = [];
+    // Build a set of already queued (pending or uploading) names to also block duplicates within the modal session
+    const queuedKeys = new Set(files.map(f => buildDuplicateKey(f.name)));
+    newFiles.forEach(item => {
+      const file = item.file || item; // support both raw File and wrapped {file, relPath}
+      const key = buildDuplicateKey(file.name);
+      if (existingKeysRef.current.has(key) || queuedKeys.has(key)) {
+        skipped.push(file.name);
+      } else {
+        accepted.push(item);
+        queuedKeys.add(key);
+      }
+    });
+    if (skipped.length > 0) {
+      alert(`Los siguientes archivos ya existen (nombre + extensión):\n\n${skipped.map(n => '• ' + n).join('\n')}\n\nSe omitieron para evitar duplicados.`);
+    }
+    if (accepted.length === 0) return;
+    const filesWithMetadata = accepted.map(item => {
+      const f = item.file || item;
+      return ({
+      file: f,
+      id: `${f.name}-${Date.now()}-${Math.random()}`,
+      name: f.name,
+      size: f.size,
+      relPath: item.relPath || f.webkitRelativePath || f.name,
+      status: 'pending',
       progress: 0,
       error: null
-    }));
-    
+    })});
     setFiles(prev => [...prev, ...filesWithMetadata]);
+  };
+
+  // Ensure nested directory path exists (when preserveFolders is true)
+  const ensureDirectoryPath = async (relativePath) => {
+    // Take directory part (exclude filename)
+    const parts = (relativePath || '').split('/').filter(Boolean);
+    if (parts.length === 0) return dirId || null;
+    const dirParts = parts.slice(0, -1); // exclude filename
+    let parent = dirId || null;
+    for (const name of dirParts) {
+      const key = `${parent || 0}/${name.toLowerCase()}`;
+      if (dirCacheRef.current.has(key)) {
+        parent = dirCacheRef.current.get(key);
+        continue;
+      }
+      // Try to find existing
+      try {
+        const params = new URLSearchParams();
+        params.append('repositorio', repositorioId);
+        if (moduloId) params.append('modulo', moduloId);
+        if (parent) params.append('parent', parent);
+        const res = await axios.get(`/api/directorios/?${params.toString()}`);
+        const found = (res.data || []).find(d => (d.nombre || '').toLowerCase() === name.toLowerCase());
+        let dirIdFound = found?.id;
+        if (!dirIdFound) {
+          // Create
+          const payload = { nombre: name, repositorio: repositorioId, modulo: moduloId || null, parent: parent };
+          const create = await axios.post('/api/directorios/', payload);
+          dirIdFound = create.data.id;
+        }
+        dirCacheRef.current.set(key, dirIdFound);
+        parent = dirIdFound;
+      } catch (e) {
+        console.error('Failed ensuring directory path', e);
+        // fallback: keep current parent
+      }
+    }
+    return parent;
   };
 
   const removeFile = (fileId) => {
@@ -190,8 +390,12 @@ function MultiFileUploader(props) {
     formData.append('nombre_original', originalName);
     
     // Backend expects 'directorio' (optional)
-    if (dirId) {
-      formData.append('directorio', dirId);
+    let targetDirId = dirId || null;
+    if (preserveFolders && fileData.relPath) {
+      try { targetDirId = await ensureDirectoryPath(fileData.relPath); } catch (e) { /* ignore */ }
+    }
+    if (targetDirId) {
+      formData.append('directorio', targetDirId);
     }
 
     if (moduloId) {
@@ -226,9 +430,17 @@ function MultiFileUploader(props) {
 
       // Determinar el endpoint según el tipo de módulo
       const isAudioModule = moduloInfo?.tipo === 'audio';
-      const uploadEndpoint = isAudioModule 
-        ? 'http://localhost:8000/api/audios/' 
-        : 'http://localhost:8000/api/broadcasts/';
+      const isImagesModule = moduloInfo?.tipo === 'images';
+      const isStorageModule = moduloInfo?.tipo === 'storage';
+      
+      let uploadEndpoint = 'http://localhost:8000/api/broadcasts/'; // default: videos
+      if (isAudioModule) {
+        uploadEndpoint = 'http://localhost:8000/api/audios/';
+      } else if (isImagesModule) {
+        uploadEndpoint = 'http://localhost:8000/api/images/';
+      } else if (isStorageModule) {
+        uploadEndpoint = 'http://localhost:8000/api/storage/';
+      }
 
       await axios.post(uploadEndpoint, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -245,6 +457,10 @@ function MultiFileUploader(props) {
       setFiles(prev => prev.map(f => 
         f.id === fileData.id ? { ...f, status: 'completed', progress: 100 } : f
       ));
+
+      // Añadir al set de existentes para bloquear futuros intentos en esta sesión
+      const completedKey = buildDuplicateKey(fileData.name);
+      if (completedKey) existingKeysRef.current.add(completedKey);
 
     } catch (error) {
       // Si fue cancelado, marcar como cancelado
@@ -404,16 +620,37 @@ function MultiFileUploader(props) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
             </svg>
             <p className="text-lg font-semibold text-gray-700 mb-2">
-              {isDragging ? 'Drop files here!' : `Drag ${getFileTypeLabel()} here`}
+              {isDragging 
+                ? (moduloInfo?.tipo === 'audio' ? 'Drop files or folders here!' : 'Drop files here!') 
+                : (moduloInfo?.tipo === 'audio' ? `Drag ${getFileTypeLabel()} or folders here` : `Drag ${getFileTypeLabel()} here`)
+              }
             </p>
             <p className="text-sm text-gray-500 mb-4">or</p>
-            <button
-              type="button"
-              onClick={() => fileInputRef.current.click()}
-              className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-semibold transition-colors"
-            >
-              Select Files
-            </button>
+            
+            <div className="flex items-center justify-center space-x-3">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current.click()}
+                className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-semibold transition-colors"
+              >
+                Select Files
+              </button>
+              
+              {/* Show "Select Folder" button only for Audio module */}
+              {moduloInfo?.tipo === 'audio' && (
+                <button
+                  type="button"
+                  onClick={() => folderInputRef.current.click()}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-semibold transition-colors flex items-center space-x-2"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                  </svg>
+                  <span>Select Folder</span>
+                </button>
+              )}
+            </div>
+            
             <input
               ref={fileInputRef}
               type="file"
@@ -422,6 +659,20 @@ function MultiFileUploader(props) {
               onChange={handleFileSelect}
               className="hidden"
             />
+            
+            {/* Folder input (hidden) - only for Audio module */}
+            {moduloInfo?.tipo === 'audio' && (
+              <input
+                ref={folderInputRef}
+                type="file"
+                webkitdirectory=""
+                directory=""
+                multiple
+                accept={getAcceptAttribute()}
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+            )}
           </div>
         </div>
 
@@ -492,7 +743,6 @@ function MultiFileUploader(props) {
                           ⏸️ Ready to upload • Metadata will be added after upload
                         </p>
                       )}
-
                       {/* Completed Message */}
                       {fileData.status === 'completed' && (
                         <p className="text-sm text-green-600 font-semibold">✓ Uploaded successfully</p>

@@ -351,28 +351,28 @@ function EncodingModal({ comercial, onClose, onSuccess }) {
               document.body.removeChild(link);
               window.URL.revokeObjectURL(url);
               
-              console.log('✅ Descarga iniciada:', latestFile.filename);
+              console.log('✅ Download started:', latestFile.filename);
               
-              // Esperar 3 segundos y eliminar el file del servidor
+              // Wait 3 seconds and delete the file from the server
               setTimeout(async () => {
                 try {
                   await axios.post('/api/broadcasts/delete-encoded/', {
-                    broadcast_id: comercial.id,  // Corregido: era comercial_id
+                    broadcast_id: comercial.id,  // Corrected: was comercial_id
                     filename: latestFile.filename
                   });
                   
-                  // Refrescar el comercial para actualizar la lista
+                  // Refresh the comercial to update the list
                   const finalResponse = await axios.get(`/api/broadcasts/${comercial.id}/`);
                   setCurrentComercial(finalResponse.data);
                   
-                  console.log('🗑️ File eliminado del servidor después de la descarga');
+                  console.log('🗑️ File deleted from server after download');
                 } catch (error) {
-                  console.error('Error eliminar file:', error);
+                  console.error('Error deleting file:', error);
                 }
               }, 3000);
             } catch (error) {
-              console.error('Error descargar file:', error);
-              alert('⚠️ Hubo un error al iniciar la descarga automática. Usa el botón de descarga manual.');
+              console.error('Error downloading file:', error);
+              alert('⚠️ There was an error starting the automatic download. Use the manual download button.');
             }
           }, 500);
           
@@ -499,33 +499,33 @@ function EncodingModal({ comercial, onClose, onSuccess }) {
                             document.body.removeChild(link);
                             window.URL.revokeObjectURL(url);
                             
-                            console.log('✅ Descarga manual iniciada:', file.filename);
+                            console.log('✅ Manual download started:', file.filename);
                             
-                            // Delete file después de 3 segundos
+                            // Delete file after 3 seconds
                             setTimeout(async () => {
                               try {
                                 await axios.post('/api/broadcasts/delete-encoded/', {
-                                  broadcast_id: currentComercial.id,  // Corregido: era comercial_id
+                                  broadcast_id: currentComercial.id,  // Corrected: was comercial_id
                                   filename: file.filename
                                 });
                                 
-                                // Refrescar el comercial
+                                // Refresh the comercial
                                 const refreshResponse = await axios.get(`/api/broadcasts/${currentComercial.id}/`);
                                 setCurrentComercial(refreshResponse.data);
                                 
-                                console.log(`🗑️ File ${file.filename} eliminado del servidor`);
+                                console.log(`🗑️ File ${file.filename} deleted from server`);
                               } catch (error) {
-                                console.error('Error eliminar file:', error);
+                                console.error('Error deleting file:', error);
                               }
                             }, 3000);
                           } catch (error) {
-                            console.error('Error descargar:', error);
-                            alert('⚠️ Error descargar el file. Intenta de nuevo.');
+                            console.error('Error downloading:', error);
+                            alert('⚠️ Error downloading the file. Try again.');
                           }
                         }}
                         className="block w-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium py-1.5 px-3 rounded transition-colors text-center cursor-pointer"
                       >
-                        Descargar y Delete
+                        Download & Delete
                       </button>
                     </div>
                   ))}

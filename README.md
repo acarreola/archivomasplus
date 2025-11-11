@@ -125,15 +125,37 @@ brew services restart redis
 #### **6. FFmpeg Optimizado para Apple Silicon**
 
 ```bash
-# FFmpeg con soporte completo (libx264, libx265, etc)
+# FFmpeg con soporte completo (libx264, libx265, VideoToolbox, etc)
 brew install ffmpeg
 
-# Verificar codecs disponibles para Mac M4
+# Verificar instalación y codecs disponibles para Mac M4
+which ffmpeg
+ffmpeg -version
 ffmpeg -codecs | grep -E "(h264|hevc|videotoolbox)"
 
-# Instalar bibliotecas adicionales de video
-brew install x264 x265 libvpx opus
+# Verificar ffprobe (requerido para metadata)
+which ffprobe
+ffprobe -version
 ```
+
+**Configuración de Variables de Entorno (Opcional)**
+
+Si instalas FFmpeg en una ubicación personalizada o quieres especificar rutas exactas:
+
+```bash
+# Homebrew Apple Silicon (recomendado)
+echo 'export FFMPEG_BIN=/opt/homebrew/bin/ffmpeg' >> ~/.zshrc
+echo 'export FFPROBE_BIN=/opt/homebrew/bin/ffprobe' >> ~/.zshrc
+
+# Homebrew Intel
+# export FFMPEG_BIN=/usr/local/bin/ffmpeg
+# export FFPROBE_BIN=/usr/local/bin/ffprobe
+
+# Aplicar cambios
+source ~/.zshrc
+```
+
+**Nota**: El sistema detectará automáticamente `ffmpeg` y `ffprobe` si están en PATH. Solo necesitas las variables de entorno si usas binarios en ubicaciones personalizadas.
 
 #### **7. Nginx (Servidor Web y Proxy)**
 
@@ -227,42 +249,41 @@ source venv_archivoplus/bin/activate
 pip install -r requirements.txt
 
 # Configurar variables de entorno
-cp .env.production.template .env.local
+cp .env.example .env
 ```
 
-**Variables críticas para instalación nativa:**
+**Variables críticas en `.env`:**
 ```bash
+# Django
+DEBUG=True
+SECRET_KEY=your-secret-key-here-change-in-production
+ALLOWED_HOSTS=localhost,127.0.0.1,192.168.1.100
+
 # Base de datos (PostgreSQL nativo)
 DATABASE_URL=postgresql://archivoplus_user:tu_password_seguro@localhost:5432/archivoplus_prod
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_USER=archivoplus_user
-POSTGRES_PASSWORD=tu_password_seguro
-POSTGRES_DB=archivoplus_prod
 
-# Redis (nativo)
-REDIS_URL=redis://:tu_password_redis@localhost:6379/0
-REDIS_HOST=localhost
-REDIS_PORT=6379
-REDIS_PASSWORD=tu_password_redis
+# Redis (nativo - opcional para Celery)
+# CELERY_BROKER_URL=redis://localhost:6379/0
+# CELERY_RESULT_BACKEND=redis://localhost:6379/0
 
-# Django
-DJANGO_SECRET_KEY=tu_clave_secreta_django_50_caracteres_minimo
-DEBUG=False
-ALLOWED_HOSTS=localhost,127.0.0.1,192.168.1.100,tu-mac-m4.local
+# FFmpeg (detecta automáticamente si está en PATH)
+# Solo configurar si usas binarios personalizados:
+# FFMPEG_BIN=/opt/homebrew/bin/ffmpeg
+# FFPROBE_BIN=/opt/homebrew/bin/ffprobe
 
-# URLs (usar IP de tu Mac M4)
-CORS_ALLOWED_ORIGINS=http://192.168.1.100:3000,http://tu-mac-m4.local:3000
-VITE_API_URL=http://192.168.1.100:8000
+# Media storage
+# MEDIA_ROOT=/path/to/your/media
+# Si no se especifica, usa BASE_DIR/media
 
-# Optimización nativa para Mac M4 (sin virtualización)
-FFMPEG_THREADS=10  # Usar todos los cores del M4
-FFMPEG_PRESET=fast  # Balance velocidad/calidad
-FFMPEG_HWACCEL=videotoolbox  # Aceleración de hardware Apple
+# CORS (ajustar según tu frontend)
+CORS_ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
+```
 
-# Paths nativos macOS
-MEDIA_ROOT=/Users/$(whoami)/Servers/ArchivoPlus/media
-STATIC_ROOT=/Users/$(whoami)/Servers/ArchivoPlus/static
+**Verificar configuración de FFmpeg:**
+```bash
+# El sistema detectará automáticamente ffmpeg si está instalado vía Homebrew
+# Puedes verificar con el health endpoint después de iniciar el servidor:
+# GET /api/health/ffmpeg/ (requiere autenticación admin)
 ```
 
 ### **Paso 4: Configurar Frontend (React)**

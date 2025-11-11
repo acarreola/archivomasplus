@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test React</title>
+</head>
+<body>
+    <h1>Test Console</h1>
+    <pre id="output"></pre>
+    <script type="module">
+        import React from 'http://localhost:5173/node_modules/react/index.js';
+        const output = document.getElementById('output');
+        try {
+            output.textContent = 'React version: ' + React.version + '\n';
+            output.textContent += 'React object: ' + JSON.stringify(Object.keys(React), null, 2);
+        } catch(e) {
+            output.textContent = 'Error: ' + e.message + '\n' + e.stack;
+        }
+    </script>
+</body>
+</html>

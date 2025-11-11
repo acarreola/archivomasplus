@@ -1,7 +1,7 @@
 # core/admin.py
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from .models import CustomUser, Repositorio, Agencia, Broadcast, Audio, SharedLink, RepositorioPermiso, Modulo, Perfil
+from .models import CustomUser, Repositorio, Agencia, Broadcast, Audio, SharedLink, RepositorioPermiso, Modulo, Perfil, ImageAsset, StorageAsset, ProcessingError
 
 @admin.register(Perfil)
 class PerfilAdmin(admin.ModelAdmin):
@@ -79,6 +79,20 @@ class RepositorioPermisoAdmin(admin.ModelAdmin):
     list_filter = ('puede_ver', 'puede_editar', 'puede_borrar')
     search_fields = ('usuario__username', 'repositorio__nombre')
 
+class ImageAssetAdmin(admin.ModelAdmin):
+    """Admin para archivos de imagen"""
+    list_display = ('nombre_original', 'tipo_archivo', 'repositorio', 'estado', 'fecha_subida')
+    list_filter = ('repositorio', 'estado', 'tipo_archivo', 'fecha_subida')
+    search_fields = ('nombre_original', 'metadata__titulo')
+    readonly_fields = ('id', 'fecha_subida')
+
+@admin.register(StorageAsset)
+class StorageAssetAdmin(admin.ModelAdmin):
+    list_display = ('nombre_original', 'tipo_archivo', 'repositorio', 'estado', 'file_size', 'fecha_subida')
+    list_filter = ('repositorio', 'estado', 'tipo_archivo', 'fecha_subida')
+    search_fields = ('nombre_original',)
+    readonly_fields = ('id', 'fecha_subida')
+
 admin.site.register(CustomUser, CustomUserAdmin)
 admin.site.register(Modulo, ModuloAdmin)
 admin.site.register(Repositorio, RepositorioAdmin)
@@ -87,3 +101,12 @@ admin.site.register(Broadcast, BroadcastAdmin)
 admin.site.register(Audio, AudioAdmin)
 admin.site.register(SharedLink, SharedLinkAdmin)
 admin.site.register(RepositorioPermiso, RepositorioPermisoAdmin)
+admin.site.register(ImageAsset, ImageAssetAdmin)
+
+
+@admin.register(ProcessingError)
+class ProcessingErrorAdmin(admin.ModelAdmin):
+    list_display = ('file_name', 'stage', 'repositorio', 'modulo', 'directorio', 'fecha_creacion', 'resolved')
+    list_filter = ('stage', 'repositorio', 'modulo', 'resolved', 'fecha_creacion')
+    search_fields = ('file_name', 'error_message')
+    readonly_fields = ('fecha_creacion',)

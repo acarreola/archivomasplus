@@ -148,10 +148,10 @@ export default function ComercialesList({ uploadCount }) {
                       ✏️ Edit
                     </button>
                     {comercial.estado_transcodificacion === 'COMPLETADO' && (
-                      <button className="text-green-600 hover:text-green-900">▶ Ver</button>
+                      <button className="text-green-600 hover:text-green-900">▶ View</button>
                     )}
-                    <button className="text-purple-600 hover:text-purple-900">↓ Descargar</button>
-                    <button className="text-red-600 hover:text-red-900">🗑 Borrar</button>
+                    <button className="text-purple-600 hover:text-purple-900">↓ Download</button>
+                    <button className="text-red-600 hover:text-red-900">🗑 Delete</button>
                   </td>
                 </tr>
               ))}

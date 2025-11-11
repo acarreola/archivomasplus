@@ -42,15 +42,18 @@ export default function RepositoriosManager() {
 
   const handleDeleteAllBroadcasts = async () => {
     if (!window.confirm(
-      '⚠️ ADVERTENCIA: Esta acción eliminará PERMANENTEMENTE:\n\n' +
-      '• Todos los registros de Broadcasts de la base de datos\n' +
+      '⚠️ ADVERTENCIA: Esta acción eliminará PERMANENTEMENTE TODO el contenido del sistema:\n\n' +
+      '• Broadcasts (incluye Reel)\n' +
+      '• Audios\n' +
+      '• Imágenes\n' +
+      '• Storage (documentos/otros)\n' +
       '• Todos los Directorios\n' +
-      '• TODOS los archivos físicos:\n' +
+      '• Y TODOS los archivos físicos:\n' +
       '  - Archivos originales (sources/)\n' +
       '  - Thumbnails (thumbnails/)\n' +
       '  - Pizarras (pizarra/)\n' +
-      '  - Videos transcodificados (support/)\n' +
-      '  - Encodings personalizados (encoded/)\n\n' +
+      '  - Archivos procesados/soporte (support/)\n' +
+      '  - Encodings personalizados (encoded/ y encoded_audio/)\n\n' +
       '❌ ESTA ACCIÓN NO SE PUEDE DESHACER ❌\n\n' +
       '¿Estás completamente seguro de continuar?'
     )) {
@@ -63,15 +66,25 @@ export default function RepositoriosManager() {
     }
 
     try {
-      const response = await axios.post('http://localhost:8000/api/broadcasts/delete_all/');
+      // Intentar primero el endpoint nuevo universal
+      let response;
+      try {
+        response = await axios.post('http://localhost:8000/api/admin/purge-all/');
+      } catch (e) {
+        // Fallback al viejo si existiera
+        response = await axios.post('http://localhost:8000/api/broadcasts/delete_all/');
+      }
       
       // Mostrar detalles de la eliminación
       if (response.data.details) {
         alert(
           `✅ Eliminación completada:\n\n` +
           `📊 Broadcasts: ${response.data.details.broadcasts}\n` +
-          `📁 Directorios: ${response.data.details.directorios}\n` +
-          `📄 Archivos físicos: ${response.data.details.archivos}\n` +
+          `🎵 Audios: ${response.data.details.audios}\n` +
+          `�️ Imágenes: ${response.data.details.images}\n` +
+          `💾 Storage: ${response.data.details.storage_files}\n` +
+          `�📁 Directorios: ${response.data.details.directorios}\n` +
+          `�️ Archivos físicos aprox: ${response.data.details.archivos_aproximados}\n` +
           (response.data.details.errores > 0 ? `⚠️ Errores: ${response.data.details.errores}` : '')
         );
       } else {
@@ -80,8 +93,13 @@ export default function RepositoriosManager() {
       
       fetchRepositorios(); // Refrescar datos
     } catch (err) {
-      console.error('Error deleting all broadcasts:', err);
-      alert('❌ Error al eliminar los broadcasts: ' + (err.response?.data?.error || err.message));
+      console.error('Error deleting all content:', err);
+      // Mostrar detalle de 405 (método no permitido) si aplica
+      if (err.response?.status === 405) {
+        alert('❌ Error: Método no permitido (405). Verifica que el endpoint soporte POST y que la URL sea correcta.');
+      } else {
+        alert('❌ Error al eliminar todo: ' + (err.response?.data?.error || err.message));
+      }
     }
   };
 

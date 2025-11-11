@@ -11,10 +11,13 @@ import AudioEncodingModal from './AudioEncodingModal';
 import VideoPlayer from './VideoPlayer';
 import AudioWavePlayer from './AudioWavePlayer';
 import VersionHistoryModal from './VersionHistoryModal';
+import ErrorLogModal from './ErrorLogModal';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
+import { getFileIcon, getExtensionBadge } from '../utils/fileIcons';
 
 function ComercialesManager() {
+  console.log('🔄 ComercialesManager LOADED - VERSION 2.0 con soporte Images');
   const { language, toggleLanguage, t } = useLanguage();
   const { user } = useAuth();
   const [repositorios, setRepositorios] = useState([]);
@@ -42,6 +45,7 @@ function ComercialesManager() {
   const [inlinePlayingId, setInlinePlayingId] = useState(null); // Para audio inline player en full view
   const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [showErrorLog, setShowErrorLog] = useState(false);
   
   // Advanced search filters
   const [filters, setFilters] = useState({
@@ -109,11 +113,14 @@ function ComercialesManager() {
     return repo?.modulos_detalle || [];
   };
 
-  // Derived state: Check if current module is audio type
+  // Derived state: Check module type
   const currentModuloInfo = selectedModulo 
     ? getSelectedRepoModulos().find(m => m.id === selectedModulo)
     : null;
   const isAudioModule = currentModuloInfo?.tipo === 'audio';
+  const isImagesModule = currentModuloInfo?.tipo === 'images';
+  
+  console.log('🔍 Módulo actual:', currentModuloInfo?.tipo, '| Audio:', isAudioModule, '| Images:', isImagesModule);
 
   const fetchCurrentUser = () => {
     // console.info('📡 Fetching current user...');
@@ -157,10 +164,20 @@ function ComercialesManager() {
     // Determinar el endpoint según el tipo de módulo
     const currentModuloInfo = selectedModulo ? getSelectedRepoModulos().find(m => m.id === selectedModulo) : null;
     const isAudioModule = currentModuloInfo?.tipo === 'audio';
-  const baseEndpoint = isAudioModule ? '/api/audios/?' : '/api/broadcasts/?';
+    const isImagesModule = currentModuloInfo?.tipo === 'images';
+    const isStorageModule = currentModuloInfo?.tipo === 'storage';
     
-    let url = baseEndpoint;
-    const params = [];
+    let baseEndpoint = '/api/broadcasts/?';
+    if (isAudioModule) {
+      baseEndpoint = '/api/audios/?';
+    } else if (isImagesModule) {
+      baseEndpoint = '/api/images/?';
+    } else if (isStorageModule) {
+      baseEndpoint = '/api/storage/?';
+    }
+    
+  let url = baseEndpoint;
+  const params = [];
     
     if (selectedRepo) {
       params.push(`repositorio=${selectedRepo}`);
@@ -170,11 +187,19 @@ function ComercialesManager() {
       params.push(`modulo=${selectedModulo}`);
     }
     
+    // Incluir parámetro de búsqueda para aprovechar el SearchFilter del backend
+    const effectiveSearch = (searchTerm && searchTerm.trim()) ? searchTerm.trim() : (filters.nombre && filters.nombre.trim()) ? filters.nombre.trim() : '';
+    if (effectiveSearch) {
+      params.push(`search=${encodeURIComponent(effectiveSearch)}`);
+    }
+
     url += params.join('&');
+    
+    console.log('🔍 Cargando desde:', url, 'Tipo:', currentModuloInfo?.tipo);
     
     axios.get(url)
       .then(res => {
-        // Normalizar estructura para audio para que el UI siga funcionando
+        // Normalizar estructura para audio/images para que el UI siga funcionando
         // igual que con broadcasts (mismos nombres de campos)
         let items = res.data || [];
         if (isAudioModule && Array.isArray(items)) {
@@ -185,7 +210,18 @@ function ComercialesManager() {
             // Mapear ruta de reproducción al campo esperado por el reproductor
             ruta_h264: it.ruta_mp3,
           }));
+        } else if (isImagesModule && Array.isArray(items)) {
+          items = items.map(it => ({
+            ...it,
+            // Mapear campos de images para compatibilidad con UI
+            estado_transcodificacion: it.estado,
+            pizarra: {
+              producto: it.nombre_original,
+              version: it.tipo_archivo,
+            },
+          }));
         }
+        console.log('✅ Items cargados:', items.length);
         setComerciales(items);
         setLoading(false);
         fetchingRef.current = false;
@@ -266,7 +302,18 @@ function ComercialesManager() {
       // Determinar el endpoint según el tipo de módulo
       const currentModuloInfo = selectedModulo ? getSelectedRepoModulos().find(m => m.id === selectedModulo) : null;
       const isAudioModule = currentModuloInfo?.tipo === 'audio';
-  const baseEndpoint = isAudioModule ? '/api/audios/' : '/api/broadcasts/';
+      const isImagesModule = currentModuloInfo?.tipo === 'images';
+      const isStorageModule = currentModuloInfo?.tipo === 'storage';
+      
+      let baseEndpoint = '/api/broadcasts/';
+      if (isAudioModule) {
+        baseEndpoint = '/api/audios/';
+      } else if (isImagesModule) {
+        baseEndpoint = '/api/images/';
+      } else if (isStorageModule) {
+        baseEndpoint = '/api/storage/';
+      }
+      
       const deleteUrl = `${baseEndpoint}${comercialId}/`;
       
       console.log('DELETE URL:', deleteUrl);
@@ -454,11 +501,15 @@ function ComercialesManager() {
       const agencia = comercial.pizarra?.agencia?.toLowerCase() || '';
       const producto = comercial.pizarra?.producto?.toLowerCase() || '';
       const version = comercial.pizarra?.version?.toLowerCase() || '';
+      const nombreArchivo = (comercial.nombre_original || '').toLowerCase();
+      const tipoArchivo = (comercial.tipo_archivo || '').toLowerCase();
       
       const matchesQuickSearch = cliente.includes(search) || 
                                  agencia.includes(search) || 
                                  producto.includes(search) || 
-                                 version.includes(search);
+                                 version.includes(search) ||
+                                 nombreArchivo.includes(search) ||
+                                 tipoArchivo.includes(search);
       
       if (!matchesQuickSearch) return false;
     }
@@ -488,8 +539,13 @@ function ComercialesManager() {
         return false;
       }
     }
-    if (filters.nombre && !(comercial.pizarra?.producto?.toLowerCase() || '').includes(filters.nombre.toLowerCase())) {
-      return false;
+    if (filters.nombre) {
+      const nombreFilter = filters.nombre.toLowerCase();
+      const nombreProducto = (comercial.pizarra?.producto || '').toLowerCase();
+      const nombreArchivo = (comercial.nombre_original || '').toLowerCase();
+      if (!(nombreProducto.includes(nombreFilter) || nombreArchivo.includes(nombreFilter))) {
+        return false;
+      }
     }
     
     return true;
@@ -556,7 +612,7 @@ function ComercialesManager() {
       {/* Modal de Reproducción (Video o Audio) */}
       {playingComercial && (
         <div className="fixed inset-0 bg-black bg-opacity-95 flex justify-center items-center z-50 p-6">
-          <div className="w-full max-w-5xl">
+          <div className="w-full max-w-6xl mx-auto">
             {/* Header minimalista */}
             <div className="bg-white text-slate-900 px-4 py-2 flex justify-between items-center rounded-t-lg border-b border-slate-200 shadow-sm">
               <h2 className="text-sm font-semibold truncate">
@@ -608,7 +664,7 @@ function ComercialesManager() {
                 </div>
               ) : (
                 <>
-                  <div className="bg-black relative aspect-video">
+                  <div className="bg-black relative w-full" style={{ aspectRatio: '16/9', maxHeight: '70vh' }}>
                     <VideoPlayer
                       src={getMediaUrl(playingComercial.ruta_proxy)}
                       poster={playingComercial.thumbnail ? getMediaUrl(playingComercial.thumbnail) : undefined}
@@ -621,41 +677,54 @@ function ComercialesManager() {
               )
             }
 
-            {/* Info compacta y elegante */}
-            <div className="bg-white px-5 py-3 rounded-b-lg border-t border-slate-200 shadow-sm">
-              <div className="grid grid-cols-3 gap-x-6 gap-y-2 text-xs text-slate-800">
-                {playingComercial.pizarra?.cliente && (
-                  <div className="flex flex-col">
-                    <span className="text-slate-500 uppercase text-[10px] font-medium tracking-wide mb-0.5">Cliente</span>
-                    <span className="text-slate-900 font-medium truncate">{playingComercial.pizarra.cliente}</span>
-                  </div>
-                )}
-                {playingComercial.pizarra?.agencia && (
-                  <div className="flex flex-col">
-                    <span className="text-slate-500 uppercase text-[10px] font-medium tracking-wide mb-0.5">Agencia</span>
-                    <span className="text-slate-900 font-medium truncate">{playingComercial.pizarra.agencia}</span>
-                  </div>
-                )}
-                {playingComercial.pizarra?.producto && (
-                  <div className="flex flex-col">
-                    <span className="text-slate-500 uppercase text-[10px] font-medium tracking-wide mb-0.5">Producto</span>
-                    <span className="text-slate-900 font-medium truncate">{playingComercial.pizarra.producto}</span>
-                  </div>
-                )}
-                {playingComercial.pizarra?.version && (
-                  <div className="flex flex-col">
-                    <span className="text-slate-500 uppercase text-[10px] font-medium tracking-wide mb-0.5">Versión</span>
-                    <span className="text-slate-900 font-medium truncate">{playingComercial.pizarra.version}</span>
-                  </div>
-                )}
-                {playingComercial.pizarra?.duracion && (
-                  <div className="flex flex-col">
-                    <span className="text-slate-500 uppercase text-[10px] font-medium tracking-wide mb-0.5">Duración</span>
-                    <span className="text-slate-900 font-medium">{playingComercial.pizarra.duracion}</span>
-                  </div>
-                )}
+            {/* Info compacta y elegante - TODOS los campos siempre visibles */}
+            <div className="bg-white px-6 py-4 rounded-b-lg border-t border-slate-200 shadow-sm">
+              <div className="grid grid-cols-4 gap-x-6 gap-y-3 text-sm">
+                {/* Cliente */}
                 <div className="flex flex-col">
-                  <span className="text-slate-500 uppercase text-[10px] font-medium tracking-wide mb-0.5">Fecha</span>
+                  <span className="text-slate-500 uppercase text-[10px] font-semibold tracking-wider mb-1">Cliente</span>
+                  <span className={`font-medium ${playingComercial.pizarra?.cliente ? 'text-slate-900' : 'text-slate-400 italic'}`}>
+                    {playingComercial.pizarra?.cliente || 'Sin información'}
+                  </span>
+                </div>
+                {/* Agencia */}
+                <div className="flex flex-col">
+                  <span className="text-slate-500 uppercase text-[10px] font-semibold tracking-wider mb-1">Agencia</span>
+                  <span className={`font-medium ${playingComercial.pizarra?.agencia ? 'text-slate-900' : 'text-slate-400 italic'}`}>
+                    {playingComercial.pizarra?.agencia || 'Sin información'}
+                  </span>
+                </div>
+                {/* Producto */}
+                <div className="flex flex-col">
+                  <span className="text-slate-500 uppercase text-[10px] font-semibold tracking-wider mb-1">Producto</span>
+                  <span className={`font-medium ${playingComercial.pizarra?.producto ? 'text-slate-900' : 'text-slate-400 italic'}`}>
+                    {playingComercial.pizarra?.producto || 'Sin información'}
+                  </span>
+                </div>
+                {/* Versión */}
+                <div className="flex flex-col">
+                  <span className="text-slate-500 uppercase text-[10px] font-semibold tracking-wider mb-1">Versión</span>
+                  <span className={`font-medium ${playingComercial.pizarra?.version ? 'text-slate-900' : 'text-slate-400 italic'}`}>
+                    {playingComercial.pizarra?.version || 'Sin información'}
+                  </span>
+                </div>
+                {/* Tipo/Formato */}
+                <div className="flex flex-col">
+                  <span className="text-slate-500 uppercase text-[10px] font-semibold tracking-wider mb-1">Formato</span>
+                  <span className={`font-medium ${(playingComercial.pizarra?.formato || playingComercial.pizarra?.type || playingComercial.pizarra?.vtype) ? 'text-slate-900' : 'text-slate-400 italic'}`}>
+                    {playingComercial.pizarra?.formato || playingComercial.pizarra?.type || playingComercial.pizarra?.vtype || 'Sin información'}
+                  </span>
+                </div>
+                {/* Duración */}
+                <div className="flex flex-col">
+                  <span className="text-slate-500 uppercase text-[10px] font-semibold tracking-wider mb-1">Duración</span>
+                  <span className={`font-medium ${playingComercial.pizarra?.duracion ? 'text-slate-900' : 'text-slate-400 italic'}`}>
+                    {playingComercial.pizarra?.duracion || 'Sin información'}
+                  </span>
+                </div>
+                {/* Fecha */}
+                <div className="flex flex-col">
+                  <span className="text-slate-500 uppercase text-[10px] font-semibold tracking-wider mb-1">Fecha</span>
                   <span className="text-slate-900 font-medium">
                     {(() => {
                       // Prioritize pizarra.fecha (metadata date)
@@ -674,6 +743,13 @@ function ComercialesManager() {
                         year: 'numeric' 
                       });
                     })()}
+                  </span>
+                </div>
+                {/* Nombre Original del Archivo */}
+                <div className="flex flex-col col-span-1">
+                  <span className="text-slate-500 uppercase text-[10px] font-semibold tracking-wider mb-1">Archivo Original</span>
+                  <span className={`font-medium truncate ${playingComercial.nombre_original ? 'text-slate-900' : 'text-slate-400 italic'}`} title={playingComercial.nombre_original || 'Sin información'}>
+                    {playingComercial.nombre_original || 'Sin información'}
                   </span>
                 </div>
               </div>
@@ -992,47 +1068,95 @@ function ComercialesManager() {
           
           <div className="flex items-center space-x-4 mb-2">
             <div className="flex space-x-2">
-              {/* View 1: Simple */}
-              <button
-                onClick={() => setViewMode('simple')}
-                className={`px-4 py-2 rounded flex items-center space-x-2 font-medium transition-colors ${
-                  viewMode === 'simple' 
-                    ? 'bg-blue-600 text-white' 
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                }`}
-                title="Simple view"
-              >
-                <span>📄</span>
-                <span className="text-sm">Simple</span>
-              </button>
+              {/* Conditional view buttons based on module type */}
+              {currentModuloInfo?.tipo === 'images' || currentModuloInfo?.tipo === 'storage' ? (
+                <>
+                  {/* For Images and Storage: Only Full view */}
+                  <button
+                    onClick={() => setViewMode('list')}
+                    className={`px-4 py-2 rounded flex items-center space-x-2 font-medium transition-colors ${
+                      viewMode === 'list' 
+                        ? 'bg-blue-600 text-white' 
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
+                    title="Full list view"
+                  >
+                    <span>📋</span>
+                    <span className="text-sm">Full</span>
+                  </button>
+                  
+                  {currentModuloInfo?.tipo === 'images' && (
+                    <button
+                      onClick={() => setViewMode('grid')}
+                      className={`px-4 py-2 rounded flex items-center space-x-2 font-medium transition-colors ${
+                        viewMode === 'grid' 
+                          ? 'bg-blue-600 text-white' 
+                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                      }`}
+                      title="Grid view with Thumbnails"
+                    >
+                      <span>🖼️</span>
+                      <span className="text-sm">Thumbnails</span>
+                    </button>
+                  )}
+                </>
+              ) : (
+                <>
+                  {/* For other modules: All three views */}
+                  {/* View 1: Simple */}
+                  <button
+                    onClick={() => setViewMode('simple')}
+                    className={`px-4 py-2 rounded flex items-center space-x-2 font-medium transition-colors ${
+                      viewMode === 'simple' 
+                        ? 'bg-blue-600 text-white' 
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
+                    title="Simple view"
+                  >
+                    <span>📄</span>
+                    <span className="text-sm">Simple</span>
+                  </button>
               
-              {/* View 2: Full list */}
-              <button
-                onClick={() => setViewMode('list')}
-                className={`px-4 py-2 rounded flex items-center space-x-2 font-medium transition-colors ${
-                  viewMode === 'list' 
-                    ? 'bg-blue-600 text-white' 
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                }`}
-                title="Full list view"
-              >
-                <span>📋</span>
-                <span className="text-sm">Full</span>
-              </button>
-              
-              {/* View 3: Grid with Thumbnails */}
-              <button
-                onClick={() => setViewMode('grid')}
-                className={`px-4 py-2 rounded flex items-center space-x-2 font-medium transition-colors ${
-                  viewMode === 'grid' 
-                    ? 'bg-blue-600 text-white' 
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                }`}
-                title="Grid view with Thumbnails"
-              >
-                <span className="text-sm">Thumbnails</span>
-              </button>
+                  {/* View 2: Full list */}
+                  <button
+                    onClick={() => setViewMode('list')}
+                    className={`px-4 py-2 rounded flex items-center space-x-2 font-medium transition-colors ${
+                      viewMode === 'list' 
+                        ? 'bg-blue-600 text-white' 
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
+                    title="Full list view"
+                  >
+                    <span>📋</span>
+                    <span className="text-sm">Full</span>
+                  </button>
+                  
+                  {/* View 3: Grid with Thumbnails */}
+                  <button
+                    onClick={() => setViewMode('grid')}
+                    className={`px-4 py-2 rounded flex items-center space-x-2 font-medium transition-colors ${
+                      viewMode === 'grid' 
+                        ? 'bg-blue-600 text-white' 
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
+                    title="Grid view with Thumbnails"
+                  >
+                    <span className="text-sm">Thumbnails</span>
+                  </button>
+                </>
+              )}
             </div>
+            {/* Error Log button */}
+            {selectedRepo && (
+              <button
+                onClick={() => setShowErrorLog(true)}
+                className="ml-auto px-3 py-2 rounded bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 flex items-center gap-2"
+                title="Ver errores de procesamiento"
+              >
+                <span>⚠️</span>
+                <span className="text-sm">Errores</span>
+              </button>
+            )}
           </div>
 
           {/* Breadcrumb Navigation */}
@@ -1476,6 +1600,264 @@ function ComercialesManager() {
               {/* Si el módulo es audio, render especial tipo waveform list */}
               {(() => {
                 const currentModulo = selectedModulo ? getSelectedRepoModulos().find(m => m.id === selectedModulo) : null;
+                
+                // Vista especial para IMAGES
+                if (currentModulo?.tipo === 'images') {
+                  return (
+                    <div className="overflow-x-auto">
+                      <table className="w-full table-fixed">
+                        <thead className="bg-gray-100 border-b-2 border-gray-300">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">THUMBNAIL</th>
+                            <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-64">ORIGINAL NAME</th>
+                            <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-28">FILE SIZE</th>
+                            <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-24">FORMAT</th>
+                            <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">DIMENSIONS</th>
+                            <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-36">DATE UPLOADED</th>
+                            <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-28">STATUS</th>
+                            <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">ACTIONS</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                          {displayItems.map((item) => item.type === 'directory' ? (
+                            <tr key={`dir-${item.data.id}`} className="hover:bg-purple-50 transition-colors bg-purple-25">
+                              <td className="px-4 py-3" colSpan="8">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center space-x-3 cursor-pointer" onClick={() => { setSelectedDirectory(item.data.id); setCurrentPage(1); }}>
+                                    <svg className="w-7 h-7 text-blue-500" fill="currentColor" viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
+                                    <div>
+                                      <div className="text-base font-semibold text-gray-900">{item.data.nombre}</div>
+                                      <div className="text-xs text-gray-500">{item.data.broadcasts_count || 0} images</div>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center space-x-2">
+                                    <button onClick={() => handleEditDirectory(item.data)} className="px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600">Edit</button>
+                                    <button onClick={() => handleDeleteDirectory(item.data.id)} className="px-2 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600">Delete</button>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          ) : (
+                            <tr key={item.data.id} className="hover:bg-gray-50 transition-colors">
+                              {/* Thumbnail */}
+                              <td className="px-4 py-3">
+                                <div className="w-20 h-20 bg-gray-100 rounded border border-gray-200 flex items-center justify-center overflow-hidden">
+                                  {item.data.thumbnail_url ? (
+                                    <img 
+                                      src={item.data.thumbnail_url} 
+                                      alt={item.data.nombre_original} 
+                                      className="w-full h-full object-contain cursor-pointer hover:opacity-80 transition-opacity" 
+                                      onClick={() => window.open(item.data.imagen_web_url || item.data.thumbnail_url, '_blank')}
+                                      title="Click to view full size"
+                                    />
+                                  ) : (
+                                    <svg className="w-8 h-8 text-gray-400" fill="currentColor" viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+                                  )}
+                                </div>
+                              </td>
+                              {/* Original Name */}
+                              <td className="px-4 py-3">
+                                <div className="font-medium text-gray-900 truncate">{item.data.nombre_original || 'Unnamed'}</div>
+                              </td>
+                              {/* File Size */}
+                              <td className="px-4 py-3 text-sm text-gray-600">
+                                {formatFileSize(item.data.file_size) || '-'}
+                              </td>
+                              {/* Format - Get from metadata or extract from archivo_original URL */}
+                              <td className="px-4 py-3">
+                                <span className="inline-flex items-center px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium uppercase">
+                                  {(() => {
+                                    // Try metadata.format first (most reliable)
+                                    if (item.data.metadata?.format) {
+                                      return item.data.metadata.format;
+                                    }
+                                    // Fallback: extract from archivo_original URL
+                                    if (item.data.archivo_original) {
+                                      const urlExt = item.data.archivo_original.split('.').pop()?.toLowerCase();
+                                      if (urlExt && urlExt.length <= 4) {
+                                        return urlExt.toUpperCase();
+                                      }
+                                    }
+                                    // Last fallback: try nombre_original
+                                    const filename = item.data.nombre_original || '';
+                                    const ext = filename.split('.').pop()?.toLowerCase() || 'N/A';
+                                    return ext.length <= 4 ? ext.toUpperCase() : 'N/A';
+                                  })()}
+                                </span>
+                              </td>
+                              {/* Dimensions */}
+                              <td className="px-4 py-3 text-sm text-gray-600">
+                                {item.data.metadata?.width && item.data.metadata?.height 
+                                  ? `${item.data.metadata.width} × ${item.data.metadata.height}` 
+                                  : '-'}
+                              </td>
+                              {/* Date Uploaded */}
+                              <td className="px-4 py-3 text-sm text-gray-600">
+                                {new Date(item.data.fecha_subida).toLocaleDateString()}
+                              </td>
+                              {/* Status */}
+                              <td className="px-4 py-3">
+                                <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
+                                  item.data.estado === 'COMPLETADO' ? 'bg-green-100 text-green-800' :
+                                  item.data.estado === 'PROCESANDO' ? 'bg-yellow-100 text-yellow-800' :
+                                  item.data.estado === 'ERROR' ? 'bg-red-100 text-red-800' :
+                                  'bg-gray-100 text-gray-800'
+                                }`}>
+                                  {item.data.estado || 'PENDING'}
+                                </span>
+                              </td>
+                              {/* Actions */}
+                              <td className="px-4 py-3">
+                                <div className="flex space-x-1">
+                                  <div className="relative group">
+                                    <button onClick={() => handleDownload(item.data, 'original')} className="p-1.5 bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors">
+                                      <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor"><path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/></svg>
+                                    </button>
+                                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">Download</div>
+                                  </div>
+                                  <div className="relative group">
+                                    <button onClick={() => handleOpenShareModal(item.data)} className="p-1.5 bg-green-500 text-white rounded hover:bg-green-600 transition-colors">
+                                      <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor"><path d="M720-80q-50 0-85-35t-35-85q0-7 1-14.5t3-13.5L322-392q-17 15-38 23.5t-44 8.5q-50 0-85-35t-35-85q0-50 35-85t85-35q23 0 44 8.5t38 23.5l282-164q-2-6-3-13.5t-1-14.5q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-23 0-44-8.5T638-672L356-508q2 6 3 13.5t1 14.5q0 7-1 14.5t-3 13.5l282 164q17-15 38-23.5t44-8.5q50 0 85 35t35 85q0 50-35 85t-85 35Z"/></svg>
+                                    </button>
+                                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">Share</div>
+                                  </div>
+                                  <div className="relative group">
+                                    <button onClick={() => handleDelete(item.data.id)} className="p-1.5 bg-red-500 text-white rounded hover:bg-red-600 transition-colors">
+                                      <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor"><path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/></svg>
+                                    </button>
+                                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">Delete</div>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                }
+                
+                // Vista especial para STORAGE (solo Full view)
+                if (currentModulo?.tipo === 'storage') {
+                  return (
+                    <div className="overflow-x-auto">
+                      <table className="w-full table-fixed">
+                        <thead className="bg-gray-100 border-b-2 border-gray-300">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">ICON</th>
+                            <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-80">FILE NAME</th>
+                            <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-28">FILE SIZE</th>
+                            <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-24">TYPE</th>
+                            <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-36">DATE UPLOADED</th>
+                            <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-28">STATUS</th>
+                            <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase w-32">ACTIONS</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                          {displayItems.map((item) => item.type === 'directory' ? (
+                            <tr key={`dir-${item.data.id}`} className="hover:bg-purple-50 transition-colors bg-purple-25">
+                              <td className="px-4 py-3" colSpan="7">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center space-x-3 cursor-pointer" onClick={() => { setSelectedDirectory(item.data.id); setCurrentPage(1); }}>
+                                    <svg className="w-7 h-7 text-blue-500" fill="currentColor" viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
+                                    <div>
+                                      <div className="text-base font-semibold text-gray-900">{item.data.nombre}</div>
+                                      <div className="text-xs text-gray-500">{item.data.broadcasts_count || 0} files</div>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center space-x-2">
+                                    <button onClick={() => handleEditDirectory(item.data)} className="px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600">Edit</button>
+                                    <button onClick={() => handleDeleteDirectory(item.data.id)} className="px-2 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600">Delete</button>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          ) : (
+                            <tr key={item.data.id} className="hover:bg-gray-50 transition-colors">
+                              {/* Icon */}
+                              <td className="px-4 py-3">
+                                {(() => {
+                                  const fileName = item.data.nombre_original || item.data.nombre || item.data.archivo_original || '';
+                                  const IconComp = getFileIcon(fileName);
+                                  return (
+                                    <div className="flex items-center justify-center">
+                                      <IconComp className="w-8 h-8 text-indigo-500" title={fileName} />
+                                    </div>
+                                  );
+                                })()}
+                              </td>
+                              {/* File Name */}
+                              <td className="px-4 py-3">
+                                <div className="font-medium text-gray-900 truncate" title={item.data.nombre_original}>
+                                  {item.data.nombre_original || 'Unnamed File'}
+                                </div>
+                              </td>
+                              {/* File Size */}
+                              <td className="px-4 py-3 text-sm text-gray-700">
+                                {item.data.file_size ? (
+                                  item.data.file_size >= 1073741824 
+                                    ? `${(item.data.file_size / 1073741824).toFixed(2)} GB`
+                                    : item.data.file_size >= 1048576 
+                                    ? `${(item.data.file_size / 1048576).toFixed(2)} MB`
+                                    : `${(item.data.file_size / 1024).toFixed(2)} KB`
+                                ) : 'N/A'}
+                              </td>
+                              {/* Type */}
+                              <td className="px-4 py-3">
+                                <span className="inline-flex items-center px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-xs font-medium uppercase">
+                                  {item.data.tipo_archivo?.replace('.', '') || 'FILE'}
+                                </span>
+                              </td>
+                              {/* Date Uploaded */}
+                              <td className="px-4 py-3 text-sm text-gray-700">
+                                {item.data.fecha_subida ? new Date(item.data.fecha_subida).toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric'}) : 'N/A'}
+                              </td>
+                              {/* Status */}
+                              <td className="px-4 py-3">
+                                <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
+                                  item.data.estado === 'COMPLETADO' ? 'bg-green-100 text-green-800' :
+                                  item.data.estado === 'PROCESANDO' ? 'bg-yellow-100 text-yellow-800' :
+                                  item.data.estado === 'ERROR' ? 'bg-red-100 text-red-800' :
+                                  'bg-gray-100 text-gray-800'
+                                }`}>
+                                  {item.data.estado || 'COMPLETED'}
+                                </span>
+                              </td>
+                              {/* Actions */}
+                              <td className="px-4 py-3">
+                                <div className="flex space-x-1">
+                                  <div className="relative group">
+                                    <button onClick={() => {
+                                      const url = item.data.archivo_url || item.data.archivo_original;
+                                      if (url) window.open(url, '_blank');
+                                    }} className="p-1.5 bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors">
+                                      <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor"><path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/></svg>
+                                    </button>
+                                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">Download</div>
+                                  </div>
+                                  <div className="relative group">
+                                    <button onClick={() => handleOpenShareModal(item.data)} className="p-1.5 bg-green-500 text-white rounded hover:bg-green-600 transition-colors">
+                                      <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor"><path d="M720-80q-50 0-85-35t-35-85q0-7 1-14.5t3-13.5L322-392q-17 15-38 23.5t-44 8.5q-50 0-85-35t-35-85q0-50 35-85t85-35q23 0 44 8.5t38 23.5l282-164q-2-6-3-13.5t-1-14.5q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-23 0-44-8.5T638-672L356-508q2 6 3 13.5t1 14.5q0 7-1 14.5t-3 13.5l282 164q17-15 38-23.5t44-8.5q50 0 85 35t35 85q0 50-35 85t-85 35Z"/></svg>
+                                    </button>
+                                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">Share</div>
+                                  </div>
+                                  <div className="relative group">
+                                    <button onClick={() => handleDelete(item.data.id)} className="p-1.5 bg-red-500 text-white rounded hover:bg-red-600 transition-colors">
+                                      <svg xmlns="http://www.w3.org/2000/svg" height="20px" viewBox="0 -960 960 960" width="20px" fill="currentColor"><path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/></svg>
+                                    </button>
+                                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">Delete</div>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                }
+                
+                // Vista especial para AUDIO
                 if (currentModulo?.tipo === 'audio') {
                   return (
                     <div className="space-y-6">
@@ -1890,6 +2272,244 @@ function ComercialesManager() {
           ) : (
             // Vista Grid con Thumbnails
             <div className="p-6">
+              {(() => {
+                const currentModulo = selectedModulo ? getSelectedRepoModulos().find(m => m.id === selectedModulo) : null;
+                
+                // Vista Grid especial para IMAGES
+                if (currentModulo?.tipo === 'images') {
+                  return (
+                    <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-4">
+                      {displayItems.map(item => {
+                        if (item.type === 'directory') {
+                          return (
+                            <div 
+                              key={`dir-${item.data.id}`}
+                              className="bg-purple-50 border-2 border-purple-200 rounded-lg shadow-sm hover:shadow-md transition-all duration-200 p-4 cursor-pointer"
+                              onClick={() => { setSelectedDirectory(item.data.id); setCurrentPage(1); }}
+                            >
+                              <div className="flex flex-col items-center">
+                                <svg className="w-16 h-16 text-purple-500 mb-2" fill="currentColor" viewBox="0 0 24 24">
+                                  <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+                                </svg>
+                                <div className="text-center">
+                                  <div className="font-semibold text-gray-900 text-sm truncate w-full">{item.data.nombre}</div>
+                                  <div className="text-xs text-gray-500 mt-1">{item.data.broadcasts_count || 0} images</div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
+                        
+                        return (
+                          <div 
+                            key={item.data.id}
+                            className="bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-xl transition-all duration-200 overflow-hidden group"
+                          >
+                            {/* Thumbnail */}
+                            <div className="relative bg-gray-100 aspect-square flex items-center justify-center overflow-hidden">
+                              {item.data.thumbnail_url ? (
+                                <img 
+                                  src={item.data.thumbnail_url}
+                                  alt={item.data.nombre_original}
+                                  className="w-full h-full object-contain cursor-pointer hover:opacity-90 transition-opacity"
+                                  onClick={() => window.open(item.data.imagen_web_url || item.data.thumbnail_url, '_blank')}
+                                />
+                              ) : (
+                                <svg className="w-8 h-8 text-gray-400" fill="currentColor" viewBox="0 0 24 24">
+                                  <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
+                                </svg>
+                              )}
+                            </div>
+
+                            {/* Info */}
+                            <div className="p-3">
+                              {/* File Name */}
+                              <h3 className="font-semibold text-sm text-gray-900 truncate mb-2" title={item.data.nombre_original}>
+                                {item.data.nombre_original || 'Unnamed'}
+                              </h3>
+                              
+                              {/* Format and File Size */}
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="inline-flex items-center px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-xs font-medium uppercase">
+                                  {(() => {
+                                    if (item.data.metadata?.format) return item.data.metadata.format;
+                                    if (item.data.archivo_original) {
+                                      const urlExt = item.data.archivo_original.split('.').pop()?.toLowerCase();
+                                      if (urlExt && urlExt.length <= 4) return urlExt.toUpperCase();
+                                    }
+                                    return 'N/A';
+                                  })()}
+                                </span>
+                                <span className="text-xs text-gray-600 font-medium">
+                                  {formatFileSize(item.data.file_size) || '-'}
+                                </span>
+                              </div>
+                              
+                              {/* Dimensions */}
+                              <div className="text-xs text-gray-500 mb-3">
+                                {item.data.metadata?.width && item.data.metadata?.height 
+                                  ? `${item.data.metadata.width} × ${item.data.metadata.height}` 
+                                  : '-'}
+                              </div>
+                              
+                              {/* Actions */}
+                              <div className="flex justify-between items-center pt-2 border-t border-gray-100">
+                                <div className="flex space-x-1">
+                                  {/* Download */}
+                                  <div className="relative group">
+                                    <button
+                                      onClick={() => handleDownload(item.data, 'original')}
+                                      className="p-1.5 text-purple-600 hover:bg-purple-50 rounded transition-colors"
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" height="18px" viewBox="0 -960 960 960" width="18px" fill="currentColor">
+                                        <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
+                                      </svg>
+                                    </button>
+                                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                      Download
+                                    </div>
+                                  </div>
+                                  {/* Share */}
+                                  <div className="relative group">
+                                    <button 
+                                      onClick={() => handleOpenShareModal(item.data)}
+                                      className="p-1.5 text-green-600 hover:bg-green-50 rounded transition-colors" 
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" height="18px" viewBox="0 -960 960 960" width="18px" fill="currentColor">
+                                        <path d="M720-80q-50 0-85-35t-35-85q0-7 1-14.5t3-13.5L322-392q-17 15-38 23.5t-44 8.5q-50 0-85-35t-35-85q0-50 35-85t85-35q23 0 44 8.5t38 23.5l282-164q-2-6-3-13.5t-1-14.5q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-23 0-44-8.5T638-672L356-508q2 6 3 13.5t1 14.5q0 7-1 14.5t-3 13.5l282 164q17-15 38-23.5t44-8.5q50 0 85 35t35 85q0 50-35 85t-85 35Z"/>
+                                      </svg>
+                                    </button>
+                                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                      Share
+                                    </div>
+                                  </div>
+                                  {/* Delete */}
+                                  <div className="relative group">
+                                    <button
+                                      onClick={() => handleDelete(item.data.id)}
+                                      className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" height="18px" viewBox="0 -960 960 960" width="18px" fill="currentColor">
+                                        <path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/>
+                                      </svg>
+                                    </button>
+                                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                                      Delete
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                }
+
+                // Vista Grid especial para STORAGE (archivos genéricos)
+                if (currentModulo?.tipo === 'storage') {
+                  return (
+                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4">
+                      {displayItems.map(item => {
+                        if (item.type === 'directory') {
+                          return (
+                            <div
+                              key={`dir-${item.data.id}`}
+                              className="bg-yellow-50 border-2 border-yellow-200 rounded-lg shadow-sm hover:shadow-md transition-all duration-200 p-4 cursor-pointer"
+                              onClick={() => { setSelectedDirectory(item.data.id); setCurrentPage(1); }}
+                            >
+                              <div className="flex flex-col items-center">
+                                <svg className="w-14 h-14 text-yellow-500 mb-2" fill="currentColor" viewBox="0 0 24 24">
+                                  <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+                                </svg>
+                                <div className="text-center">
+                                  <div className="font-semibold text-gray-900 text-sm truncate w-full" title={item.data.nombre}>{item.data.nombre}</div>
+                                  <div className="text-xs text-gray-500 mt-1">{item.data.files_count || 0} archivos</div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        const fileName = item.data.nombre_original || item.data.nombre || item.data.archivo_original || 'Unnamed';
+                        const IconComp = getFileIcon(fileName);
+                        const size = item.data.file_size;
+
+                        return (
+                          <div
+                            key={`file-${item.data.id}`}
+                            className="bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-xl transition-all duration-200 overflow-hidden group p-3 flex flex-col"
+                          >
+                            {/* Icono */}
+                            <div className="flex items-center justify-center mb-3 mt-1">
+                              <IconComp className="w-10 h-10 text-gray-600 group-hover:text-indigo-600 transition-colors" />
+                            </div>
+                            {/* Nombre */}
+                            <h3 className="font-semibold text-xs text-gray-900 truncate mb-1" title={fileName}>{fileName}</h3>
+                            {/* Badges */}
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="inline-flex items-center px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded text-[10px] font-medium uppercase tracking-wide">{getExtensionBadge(fileName)}</span>
+                              <span className="text-[10px] text-gray-600 font-medium">{typeof size === 'number' ? (size < 1024 ? `${size} B` : size < 1024*1024 ? `${(size/1024).toFixed(1)} KB` : `${(size/1024/1024).toFixed(1)} MB`) : '-'}</span>
+                            </div>
+                            {/* Acciones */}
+                            <div className="mt-auto pt-2 border-t border-gray-100 flex items-center justify-between">
+                              <div className="flex space-x-1">
+                                {/* Descargar */}
+                                <div className="relative group">
+                                  <button
+                                    onClick={() => handleDownload(item.data, 'original')}
+                                    className="p-1.5 text-purple-600 hover:bg-purple-50 rounded transition-colors"
+                                  >
+                                    <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
+                                      <path d="M480-320 280-520l56-58 104 104v-326h80v326l104-104 56 58-200 200ZM240-160q-33 0-56.5-23.5T160-240v-120h80v120h480v-120h80v120q0 33-23.5 56.5T720-160H240Z"/>
+                                    </svg>
+                                  </button>
+                                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 bg-gray-900 text-white text-[10px] rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">Descargar</div>
+                                </div>
+                                {/* Compartir */}
+                                <div className="relative group">
+                                  <button
+                                    onClick={() => handleOpenShareModal(item.data)}
+                                    className="p-1.5 text-green-600 hover:bg-green-50 rounded transition-colors"
+                                  >
+                                    <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
+                                      <path d="M720-80q-50 0-85-35t-35-85q0-7 1-14.5t3-13.5L322-392q-17 15-38 23.5t-44 8.5q-50 0-85-35t-35-85q0-50 35-85t85-35q23 0 44 8.5t38 23.5l282-164q-2-6-3-13.5t-1-14.5q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-23 0-44-8.5T638-672L356-508q2 6 3 13.5t1 14.5q0 7-1 14.5t-3 13.5l282 164q17-15 38-23.5t44-8.5q50 0 85 35t35 85q0 50-35 85t-85 35Z"/>
+                                    </svg>
+                                  </button>
+                                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 bg-gray-900 text-white text-[10px] rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">Compartir</div>
+                                </div>
+                              </div>
+                              {/* Eliminar */}
+                              <div className="relative group">
+                                <button
+                                  onClick={() => handleDelete(item.data.id)}
+                                  className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
+                                    <path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360ZM280-720v520-520Z"/>
+                                  </svg>
+                                </button>
+                                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 bg-gray-900 text-white text-[10px] rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">Eliminar</div>
+                              </div>
+                            </div>
+                            {/* Fecha */}
+                            <div className="text-[10px] text-gray-400 mt-2">
+                              {(() => {
+                                const fecha = item.data.fecha_subida || item.data.created || item.data.updated;
+                                if (!fecha) return '';
+                                try { return new Date(fecha).toLocaleDateString('es-MX'); } catch { return ''; }
+                              })()}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                }
+                
+                // Vista Grid por defecto para otros módulos
+                return (
               <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-10 gap-4">
                 {comercialesFiltrados.map(comercial => {
                   return (
@@ -2153,6 +2773,8 @@ function ComercialesManager() {
                 );
                 })}
               </div>
+              );
+            })()}
             </div>
           )}
 
@@ -2321,6 +2943,17 @@ function ComercialesManager() {
       {showVersionHistory && (
         <VersionHistoryModal
           onClose={() => setShowVersionHistory(false)}
+        />
+      )}
+
+      {/* Error Log Modal */}
+      {showErrorLog && (
+        <ErrorLogModal
+          open={showErrorLog}
+          onClose={() => setShowErrorLog(false)}
+          repositorioId={selectedRepo}
+          moduloId={selectedModulo}
+          directorioId={selectedDirectory}
         />
       )}
     </div>

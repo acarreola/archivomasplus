@@ -1,19 +1,13 @@
-import * as React from 'react';
+import { createContext, useState, useEffect, useContext } from 'react';
 import axios from '../utils/axios';
 
-// Use a global singleton to avoid duplicate contexts on HMR or multiple loads
-const getGlobalThis = () => (typeof window !== 'undefined' ? window : globalThis);
-const __global = getGlobalThis();
-if (!__global.__ARCHIVO_AUTH_CONTEXT__) {
-  __global.__ARCHIVO_AUTH_CONTEXT__ = React.createContext(null);
-}
-const AuthContext = __global.__ARCHIVO_AUTH_CONTEXT__;
+const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  React.useEffect(() => {
+  useEffect(() => {
     checkAuth();
   }, []);
 
@@ -86,22 +80,10 @@ export function AuthProvider({ children }) {
 }
 
 export function useAuth() {
-  // Access via React namespace to avoid potential named import issues
-  const context = React.useContext(AuthContext);
-  if (context == null) {
-    return {
-      user: null,
-      loading: true,
-      login: () => {},
-      logout: () => {},
-      hasPermission: () => false,
-      getPerfilColor: () => '#3b82f6',
-      getPerfilNombre: () => 'Usuario',
-      isAuthenticated: false,
-    };
+  const context = useContext(AuthContext);
+  if (context === undefined || context === null) {
+    throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
 }
 
-// Optional named export (useful for debugging/visibility)
-export { AuthContext };

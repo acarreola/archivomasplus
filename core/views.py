@@ -3,21 +3,121 @@ import logging
 from rest_framework import viewsets, filters, status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny, IsAdminUser
+from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
-from .models import Repositorio, Agencia, Broadcast, Audio, CustomUser, SharedLink, Directorio, RepositorioPermiso, Modulo, Perfil, SistemaInformacion
+from .models import Repositorio, Agencia, Broadcast, Audio, CustomUser, SharedLink, Directorio, RepositorioPermiso, Modulo, Perfil, SistemaInformacion, ImageAsset, StorageAsset, ProcessingError
 from .serializers import (
     RepositorioSerializer, AgenciaSerializer, BroadcastSerializer, AudioSerializer,
     UserSerializer, SharedLinkSerializer, SharedLinkPublicSerializer, DirectorioSerializer,
-    RepositorioPermisoSerializer, ModuloSerializer, PerfilSerializer, SistemaInformacionSerializer
+    RepositorioPermisoSerializer, ModuloSerializer, PerfilSerializer, SistemaInformacionSerializer, ImageAssetSerializer, StorageAssetSerializer, ProcessingErrorSerializer
 )
 from .tasks import transcode_video
 
 logger = logging.getLogger(__name__)
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def ffmpeg_health(request):
+    """Verifica disponibilidad de ffmpeg/ffprobe y permisos de escritura en MEDIA_ROOT."""
+    import shutil, os
+    from django.conf import settings
+    ffmpeg_path = shutil.which('ffmpeg')
+    ffprobe_path = shutil.which('ffprobe')
+    media_root = settings.MEDIA_ROOT
+    exists = os.path.exists(media_root)
+    writable = os.access(media_root, os.W_OK) if exists else False
+    subdirs = ['support','thumbnails','pizarra']
+    created = []
+    for d in subdirs:
+        p = os.path.join(media_root, d)
+        try:
+            os.makedirs(p, exist_ok=True)
+            created.append({'dir': d, 'exists': True, 'writable': os.access(p, os.W_OK)})
+        except Exception as e:
+            created.append({'dir': d, 'error': str(e)})
+    return Response({
+        'ffmpeg': ffmpeg_path or 'NOT_FOUND',
+        'ffprobe': ffprobe_path or 'NOT_FOUND',
+        'media_root': str(media_root),
+        'media_root_exists': exists,
+        'media_root_writable': writable,
+        'subdirs': created
+    })
+@api_view(['POST', 'OPTIONS'])
+@permission_classes([IsAdminUser])
+def purge_all(request):
+    """
+    Endpoint administrativo para borrar TODO el contenido del sistema:
+    Broadcast/Reel, Audio, ImageAsset, StorageAsset y todos los Directorios.
+    También vacía las carpetas principales de media.
+    """
+    import os
+    import shutil
+    from pathlib import Path
+    from django.conf import settings
+
+    deleted_files = 0
+    errors = []
+
+    # Contar antes de borrar
+    broadcast_count = Broadcast.objects.count()
+    audio_count = Audio.objects.count()
+    image_count = ImageAsset.objects.count()
+    storage_count = StorageAsset.objects.count()
+    directorio_count = Directorio.objects.count()
+
+    # Borrar contenido y luego directorios
+    Broadcast.objects.all().delete()
+    Audio.objects.all().delete()
+    ImageAsset.objects.all().delete()
+    StorageAsset.objects.all().delete()
+    Directorio.objects.all().delete()
+
+    # Vaciar carpetas de media
+    media_root = Path(settings.MEDIA_ROOT)
+    subdirs = ['sources', 'thumbnails', 'pizarra', 'support', 'encoded', 'encoded_audio']
+
+    for subdir in subdirs:
+        subdir_path = media_root / subdir
+        if subdir_path.exists():
+            try:
+                files_in_dir = list(subdir_path.rglob('*'))
+                file_count = sum(1 for f in files_in_dir if f.is_file())
+                for item in subdir_path.iterdir():
+                    try:
+                        if item.is_file() or item.is_symlink():
+                            item.unlink()
+                            deleted_files += 1
+                        elif item.is_dir():
+                            if not item.name.startswith('.'):
+                                shutil.rmtree(item)
+                                deleted_files += file_count
+                    except Exception as e:
+                        errors.append(f"Error deleting {item}: {str(e)}")
+            except Exception as e:
+                errors.append(f"Error cleaning directory {subdir}: {str(e)}")
+
+    result = {
+        'message': 'Se eliminó TODO el contenido y se vaciaron las carpetas de media.',
+        'details': {
+            'broadcasts': broadcast_count,
+            'audios': audio_count,
+            'images': image_count,
+            'storage_files': storage_count,
+            'directorios': directorio_count,
+            'archivos_aproximados': deleted_files,
+            'carpetas_vaciadas': subdirs,
+            'errores': len(errors)
+        }
+    }
+
+    if errors:
+        result['errors'] = errors[:10]
+
+    return Response(result)
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -36,16 +136,22 @@ def login_view(request):
     
     # Limitar intentos de login para prevenir ataques de fuerza bruta
     # Guardar IP y número de intentos en cache (Redis)
-    from django.core.cache import cache
-    ip_address = request.META.get('REMOTE_ADDR')
-    cache_key = f'login_attempts_{ip_address}'
-    attempts = cache.get(cache_key, 0)
-    
-    if attempts >= 5:
-        return Response({
-            'success': False,
-            'message': 'Demasiados intentos fallidos. Intenta de nuevo en 15 minutos.'
-        }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+    # Si Redis no está disponible, continuar sin rate limiting
+    attempts = 0
+    cache_key = None
+    try:
+        from django.core.cache import cache
+        ip_address = request.META.get('REMOTE_ADDR')
+        cache_key = f'login_attempts_{ip_address}'
+        attempts = cache.get(cache_key, 0)
+        
+        if attempts >= 5:
+            return Response({
+                'success': False,
+                'message': 'Demasiados intentos fallidos. Intenta de nuevo en 15 minutos.'
+            }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+    except Exception as e:
+        logger.warning(f'Cache no disponible, continuando sin rate limiting: {e}')
     
     # Authenticate using email (EmailBackend will handle this)
     user = authenticate(request, username=email, password=password)
@@ -58,7 +164,11 @@ def login_view(request):
             }, status=status.HTTP_403_FORBIDDEN)
         
         # Login exitoso - resetear intentos
-        cache.delete(cache_key)
+        try:
+            if cache_key:
+                cache.delete(cache_key)
+        except Exception:
+            pass  # Cache no disponible, continuar
         
         # Login del usuario
         login(request, user)
@@ -74,7 +184,11 @@ def login_view(request):
         serializer = UserSerializer(user)
         
         # Log del login exitoso
-        logger.info(f'Login exitoso: {user.email} desde IP {ip_address}')
+        try:
+            ip_address = request.META.get('REMOTE_ADDR')
+            logger.info(f'Login exitoso: {user.email} desde IP {ip_address}')
+        except Exception:
+            logger.info(f'Login exitoso: {user.email}')
         
         return Response({
             'success': True,
@@ -83,10 +197,13 @@ def login_view(request):
         })
     else:
         # Login fallido - incrementar contador de intentos
-        cache.set(cache_key, attempts + 1, 900)  # 15 minutos
-        
-        # Log del intento fallido
-        logger.warning(f'Intento de login fallido: {email} desde IP {ip_address}')
+        try:
+            if cache_key:
+                cache.set(cache_key, attempts + 1, 900)  # 15 minutos
+            ip_address = request.META.get('REMOTE_ADDR')
+            logger.warning(f'Intento de login fallido: {email} desde IP {ip_address}')
+        except Exception as e:
+            logger.warning(f'Intento de login fallido: {email} (cache no disponible)')
         
         return Response({
             'success': False,
@@ -261,11 +378,11 @@ def smtp_config(request):
             for key, value in sorted(env_content.items()):
                 f.write(f'{key}={value}\n')
         
-        logger.info(f'Configuración SMTP actualizada por {request.user.email}')
+        logger.info(f'SMTP configuration updated by {request.user.email}')
         
         return Response({
             'success': True,
-            'message': 'Configuración guardada. Reinicia el servidor para aplicar cambios.'
+            'message': 'Configuration saved. Restart server to apply changes.'
         })
 
 @api_view(['POST'])
@@ -315,10 +432,10 @@ def smtp_test(request):
             'message': f'Email de prueba enviado exitosamente a {email}'
         })
     except Exception as e:
-        logger.error(f'Error enviando email de prueba: {str(e)}')
+        logger.error(f'Error sending test email: {str(e)}')
         return Response({
             'success': False,
-            'message': f'Error al enviar email: {str(e)}'
+            'message': f'Error sending email: {str(e)}'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['GET'])
@@ -408,7 +525,8 @@ class BroadcastViewSet(viewsets.ModelViewSet):
     serializer_class = BroadcastSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_fields = ['repositorio', 'estado_transcodificacion', 'modulo', 'directorio']
-    search_fields = ['pizarra__producto', 'pizarra__version']
+    # Permitir búsqueda por nombre de archivo también (requerido para módulos tipo "reel")
+    search_fields = ['pizarra__producto', 'pizarra__version', 'nombre_original']
 
     def get_queryset(self):
         """
@@ -436,6 +554,29 @@ class BroadcastViewSet(viewsets.ModelViewSet):
             repositorio_id__in=repositorios_ids
         ).order_by('-fecha_subida')
 
+class ProcessingErrorViewSet(viewsets.ReadOnlyModelViewSet):
+    """Lista los errores de procesamiento. Solo lectura."""
+    serializer_class = ProcessingErrorSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['repositorio', 'modulo', 'directorio', 'stage', 'resolved']
+    search_fields = ['file_name', 'error_message']
+    ordering_fields = ['fecha_creacion', 'file_name', 'stage']
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = ProcessingError.objects.all()
+        # Superusers ven todo
+        if user.is_superuser or user.is_staff:
+            return qs.order_by('-fecha_creacion')
+        if not user.is_authenticated:
+            return qs.none()
+        # Filtrar por repos permitidos
+        repositorios_ids = RepositorioPermiso.objects.filter(
+            usuario=user,
+            puede_ver=True
+        ).values_list('repositorio_id', flat=True)
+        return qs.filter(repositorio_id__in=repositorios_ids).order_by('-fecha_creacion')
+
     def create(self, request, *args, **kwargs):
         """
         Sobrescribimos el método create para manejar el upload de archivos
@@ -450,12 +591,36 @@ class BroadcastViewSet(viewsets.ModelViewSet):
         
         # Si hay un archivo original, disparar la tarea de transcodificación
         if broadcast.archivo_original:
+            import threading
+            import os
+            from django.conf import settings
+            # Log adicional para diagnóstico: existencia física del archivo
+            try:
+                original_path = broadcast.archivo_original.path
+                existe = os.path.exists(original_path)
+                logger.info(f"🔎 Archivo original guardado: {original_path} (exists={existe})")
+            except Exception as e:
+                logger.error(f"⚠️ No se pudo obtener path físico del archivo original: {e}")
+            
             # Actualizar estado a PROCESANDO
             broadcast.estado_transcodificacion = 'PROCESANDO'
             broadcast.save()
             
-            # Disparar tarea Celery asíncrona
-            transcode_video.delay(str(broadcast.id))
+            # Process in background using threading (no Redis/Celery needed)
+            def process_in_background():
+                try:
+                    # Ejecutar la tarea de forma síncrona para entorno sin Celery worker
+                    try:
+                        transcode_video.run(str(broadcast.id))
+                    except Exception:
+                        # Fallback a invocación directa (algunos decoradores permiten llamada directa)
+                        transcode_video(str(broadcast.id))
+                except Exception as e:
+                    logger.error(f"Error transcoding video in background: {e}")
+            
+            thread = threading.Thread(target=process_in_background, daemon=True)
+            thread.start()
+            logger.info(f"🎬 Broadcast {broadcast.id} saved, transcoding in background...")
         
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
@@ -516,20 +681,102 @@ class BroadcastViewSet(viewsets.ModelViewSet):
                     os.remove(archivo_path)
                     logger.info(f"  ✓ Eliminado: {archivo_path}")
                 else:
-                    logger.warning(f"  ⚠ No existe: {archivo_path}")
+                    logger.warning(f"  ⚠ Does not exist: {archivo_path}")
             except Exception as e:
-                logger.error(f"  ✗ Error al eliminar {archivo_path}: {e}")
+                logger.error(f"  ✗ Error deleting {archivo_path}: {e}")
 
     def destroy(self, request, *args, **kwargs):
         """
-        Sobrescribimos el método destroy para eliminar todos los archivos físicos
-        asociados al broadcast antes de eliminarlo de la base de datos.
+        Override destroy method to delete all physical files
+        associated with the broadcast before deleting from database.
         """
         broadcast = self.get_object()
-        logger.info(f"🗑️  Eliminando broadcast {broadcast.id}")
+        logger.info(f"🗑️  Deleting broadcast {broadcast.id}")
         self._delete_broadcast_files(broadcast)
-        # Finalmente, eliminar el registro de la base de datos
-        logger.info(f"  ✓ Registro eliminado de la base de datos")
+        # Finally, delete the database record
+        logger.info(f"  ✓ Database record deleted")
+        return super().destroy(request, *args, **kwargs)
+
+
+class StorageAssetViewSet(viewsets.ModelViewSet):
+    """ViewSet for general storage files - accepts all file types"""
+    queryset = StorageAsset.objects.all().order_by('-fecha_subida')
+    serializer_class = StorageAssetSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['repositorio', 'directorio', 'modulo', 'tipo_archivo', 'creado_por', 'estado']
+    search_fields = ['nombre_original', 'tipo_archivo']
+    ordering_fields = ['fecha_subida', 'nombre_original', 'tipo_archivo', 'file_size']
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        """Simple storage - just save the file, no processing"""
+        import os
+        
+        # Get file info before saving
+        uploaded_file = self.request.FILES.get('archivo_original')
+        
+        # Save instance with user
+        instance = serializer.save(
+            creado_por=self.request.user,
+            estado='COMPLETADO'  # Storage files are always complete immediately
+        )
+        
+        # Update file metadata after save
+        if instance.archivo_original:
+            filename = instance.archivo_original.name
+            ext = os.path.splitext(filename)[1].lower()
+            instance.tipo_archivo = ext if ext else 'unknown'
+            
+            # Get file size
+            try:
+                instance.file_size = instance.archivo_original.size
+            except Exception:
+                instance.file_size = 0
+            
+            # Save metadata only
+            instance.save(update_fields=['tipo_archivo', 'file_size'])
+        
+        logger.info(f"📦 Storage file saved: {instance.nombre_original} ({instance.tipo_archivo}, {instance.file_size} bytes)")
+    
+    def _delete_storage_files(self, storage_file):
+        """Delete physical files associated with a storage file."""
+        import os
+        
+        archivos_a_eliminar = []
+
+        # 1. Original file
+        if storage_file.archivo_original:
+            try:
+                archivos_a_eliminar.append(storage_file.archivo_original.path)
+                logger.info(f"  - Original file: {storage_file.archivo_original.path}")
+            except Exception as e:
+                logger.error(f"  - Error getting original file path: {e}")
+
+        # 2. Thumbnail (if exists)
+        if storage_file.thumbnail:
+            try:
+                archivos_a_eliminar.append(storage_file.thumbnail.path)
+                logger.info(f"  - Thumbnail: {storage_file.thumbnail.path}")
+            except Exception as e:
+                logger.error(f"  - Error getting thumbnail path: {e}")
+
+        # Delete all physical files
+        for archivo_path in archivos_a_eliminar:
+            try:
+                if os.path.exists(archivo_path):
+                    os.remove(archivo_path)
+                    logger.info(f"  ✓ Deleted: {archivo_path}")
+                else:
+                    logger.warning(f"  ⚠ Does not exist: {archivo_path}")
+            except Exception as e:
+                logger.error(f"  ✗ Error deleting {archivo_path}: {e}")
+
+    def destroy(self, request, *args, **kwargs):
+        """Override destroy method to delete physical files before database record."""
+        storage_file = self.get_object()
+        logger.info(f"🗑️  Deleting storage file {storage_file.id} - {storage_file.nombre_original}")
+        self._delete_storage_files(storage_file)
+        logger.info(f"  ✓ Database record deleted")
         return super().destroy(request, *args, **kwargs)
 
     @action(detail=False, methods=['post'], permission_classes=[IsAdminUser])
@@ -662,12 +909,22 @@ class BroadcastViewSet(viewsets.ModelViewSet):
             broadcast.last_error = None
             broadcast.save(update_fields=['estado_transcodificacion', 'last_error'])
             
-            transcode_video.delay(str(broadcast.id))
+            # Use threading instead of Celery
+            import threading
             
-            logger.info(f"🔄 Reprocessing iniciado para broadcast {broadcast.id}")
+            def process_in_background():
+                try:
+                    transcode_video(str(broadcast.id))
+                except Exception as e:
+                    logger.error(f"Error transcoding video in background: {e}")
+            
+            thread = threading.Thread(target=process_in_background, daemon=True)
+            thread.start()
+            
+            logger.info(f"🔄 Reprocessing started for broadcast {broadcast.id}")
             return Response({'status': 'queued', 'broadcast_id': str(broadcast.id)})
         except Exception as e:
-            logger.error(f"❌ Error al reprocessar broadcast: {e}")
+            logger.error(f"❌ Error reprocessing broadcast: {e}")
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
     
     @action(detail=False, methods=['post'], url_path='cancel_stuck_processes')
@@ -759,8 +1016,18 @@ class BroadcastViewSet(viewsets.ModelViewSet):
             b.estado_transcodificacion = 'PROCESANDO'
             b.last_error = None
             b.save(update_fields=['estado_transcodificacion', 'last_error'])
-            # Disparar tarea
-            transcode_video.delay(str(b.id))
+            
+            # Use threading instead of Celery
+            import threading
+            
+            def process_in_background(broadcast_id):
+                try:
+                    transcode_video(broadcast_id)
+                except Exception as e:
+                    logger.error(f"Error transcoding video in background: {e}")
+            
+            thread = threading.Thread(target=process_in_background, args=(str(b.id),), daemon=True)
+            thread.start()
             queued += 1
 
         logger.info(f"🔁 Retry failed: queued {queued}/{total} broadcasts")
@@ -979,18 +1246,27 @@ class BroadcastViewSet(viewsets.ModelViewSet):
                 broadcast.estado_transcodificacion = 'PROCESANDO'
                 broadcast.save()
                 
-                # Disparar tarea Celery
-                transcode_video.delay(str(broadcast.id))
+                # Use threading instead of Celery
+                import threading
+                
+                def process_in_background(broadcast_id):
+                    try:
+                        transcode_video(broadcast_id)
+                    except Exception as e:
+                        logger.error(f"Error transcoding video in background: {e}")
+                
+                thread = threading.Thread(target=process_in_background, args=(str(broadcast.id),), daemon=True)
+                thread.start()
                 
                 initiated.append({
                     'id': str(broadcast.id),
                     'nombre': broadcast.nombre_original
                 })
                 
-                logger.info(f"🎬 Transcodificación iniciada: {broadcast.nombre_original}")
+                logger.info(f"🎬 Transcoding started: {broadcast.nombre_original}")
                 
             except Exception as e:
-                logger.error(f"Error al iniciar transcodificación: {e}")
+                logger.error(f"Error starting transcoding: {e}")
         
         return Response({
             'success': True,
@@ -1269,9 +1545,9 @@ class BroadcastViewSet(viewsets.ModelViewSet):
                     if os.path.exists(file_path):
                         try:
                             os.remove(file_path)
-                            logger.info(f"🗑️ Archivo eliminado: {file_path}")
+                            logger.info(f"🗑️ File deleted: {file_path}")
                         except Exception as e:
-                            logger.error(f"Error al eliminar archivo físico: {e}")
+                            logger.error(f"Error deleting physical file: {e}")
                     
                     # Remover de la lista
                     broadcast.encoded_files.pop(i)
@@ -1307,7 +1583,19 @@ class BroadcastViewSet(viewsets.ModelViewSet):
             b.last_error = ''
             b.estado_transcodificacion = 'PROCESANDO'
             b.save(update_fields=['last_error', 'estado_transcodificacion'])
-            transcode_video.delay(str(b.id))
+            
+            # Use threading instead of Celery
+            import threading
+            
+            def process_in_background():
+                try:
+                    transcode_video(str(b.id))
+                except Exception as e:
+                    logger.error(f"Error transcoding video in background: {e}")
+            
+            thread = threading.Thread(target=process_in_background, daemon=True)
+            thread.start()
+            
             return Response({'status': 'queued', 'id': str(b.id)})
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -1348,7 +1636,18 @@ class BroadcastViewSet(viewsets.ModelViewSet):
             b.last_error = ''
             b.estado_transcodificacion = 'PROCESANDO'
             b.save(update_fields=['last_error', 'estado_transcodificacion'])
-            transcode_video.delay(str(b.id))
+            
+            # Use threading instead of Celery
+            import threading
+            
+            def process_in_background(broadcast_id):
+                try:
+                    transcode_video(broadcast_id)
+                except Exception as e:
+                    logger.error(f"Error transcoding video in background: {e}")
+            
+            thread = threading.Thread(target=process_in_background, args=(str(b.id),), daemon=True)
+            thread.start()
             queued += 1
 
         return Response({
@@ -1360,8 +1659,9 @@ class BroadcastViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], permission_classes=[IsAdminUser])
     def delete_all(self, request):
         """
-        Deletes all Broadcast records AND their physical files. For testing purposes only.
-        Also deletes all Directorios and COMPLETELY EMPTIES media folders.
+        Elimina TODOS los registros de todos los tipos de contenido: Broadcast, Audio, ImageAsset y StorageAsset.
+        Además elimina todos los Directorios y vacía las carpetas principales de media.
+        Uso solo para pruebas / reseteo completo. Requiere superusuario.
         """
         if not request.user.is_superuser:
             return Response({'error': 'Solo los superusuarios pueden realizar esta acción.'}, status=status.HTTP_403_FORBIDDEN)
@@ -1372,17 +1672,20 @@ class BroadcastViewSet(viewsets.ModelViewSet):
         from django.conf import settings
         
         deleted_files = 0
-        deleted_dirs = 0
         errors = []
         
-        # Get counts before deleting
+        # Contar antes de borrar
         broadcast_count = Broadcast.objects.count()
+        audio_count = Audio.objects.count()
+        image_count = ImageAsset.objects.count()
+        storage_count = StorageAsset.objects.count()
         directorio_count = Directorio.objects.count()
-        
-        # Delete all broadcasts from database FIRST
+
+        # Borrar en orden: contenido y luego directorios
         Broadcast.objects.all().delete()
-        
-        # Delete all Directorios from database
+        Audio.objects.all().delete()
+        ImageAsset.objects.all().delete()
+        StorageAsset.objects.all().delete()
         Directorio.objects.all().delete()
         
         # Now COMPLETELY EMPTY the media folders
@@ -1417,9 +1720,12 @@ class BroadcastViewSet(viewsets.ModelViewSet):
                     errors.append(f"Error cleaning directory {subdir}: {str(e)}")
         
         result = {
-            'message': f'Se eliminaron {broadcast_count} broadcasts, {directorio_count} directorios y se vaciaron completamente las carpetas de media.',
+            'message': 'Se eliminó TODO el contenido y se vaciaron las carpetas de media.',
             'details': {
                 'broadcasts': broadcast_count,
+                'audios': audio_count,
+                'images': image_count,
+                'storage_files': storage_count,
                 'directorios': directorio_count,
                 'archivos_aproximados': deleted_files,
                 'carpetas_vaciadas': subdirs,
@@ -1531,9 +1837,19 @@ class AudioViewSet(viewsets.ModelViewSet):
             audio.estado_procesamiento = 'PROCESANDO'
             audio.save()
             
-            # Disparar tarea Celery asíncrona
+            # Use threading instead of Celery
+            import threading
             from core.tasks import process_audio
-            process_audio.delay(str(audio.id))
+            
+            def process_in_background():
+                try:
+                    process_audio(str(audio.id))
+                except Exception as e:
+                    logger.error(f"Error processing audio in background: {e}")
+            
+            thread = threading.Thread(target=process_in_background, daemon=True)
+            thread.start()
+            logger.info(f"🎵 Audio {audio.id} saved, processing in background...")
         
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
@@ -1584,19 +1900,19 @@ class AudioViewSet(viewsets.ModelViewSet):
                     os.remove(archivo_path)
                     logger.info(f"  ✓ Eliminado: {archivo_path}")
                 else:
-                    logger.warning(f"  ⚠ No existe: {archivo_path}")
+                    logger.warning(f"  ⚠ Does not exist: {archivo_path}")
             except Exception as e:
-                logger.error(f"  ✗ Error al eliminar {archivo_path}: {e}")
+                logger.error(f"  ✗ Error deleting {archivo_path}: {e}")
 
     def destroy(self, request, *args, **kwargs):
         """
-        Sobrescribimos el método destroy para eliminar todos los archivos físicos
-        asociados al audio antes de eliminarlo de la base de datos.
+        Override destroy method to delete all physical files
+        associated with the audio before deleting from database.
         """
         audio = self.get_object()
-        logger.info(f"🗑️  Eliminando audio {audio.id}")
+        logger.info(f"🗑️  Deleting audio {audio.id}")
         self._delete_audio_files(audio)
-        logger.info(f"  ✓ Registro eliminado de la base de datos")
+        logger.info(f"  ✓ Database record deleted")
         return super().destroy(request, *args, **kwargs)
 
     @action(detail=True, methods=['post'], url_path='reprocess')
@@ -1606,8 +1922,20 @@ class AudioViewSet(viewsets.ModelViewSet):
             audio = self.get_object()
             audio.estado_procesamiento = 'PROCESANDO'
             audio.save(update_fields=['estado_procesamiento'])
+            
+            # Use threading instead of Celery
+            import threading
             from core.tasks import process_audio
-            process_audio.delay(str(audio.id))
+            
+            def process_in_background():
+                try:
+                    process_audio(str(audio.id))
+                except Exception as e:
+                    logger.error(f"Error processing audio in background: {e}")
+            
+            thread = threading.Thread(target=process_in_background, daemon=True)
+            thread.start()
+            
             return Response({'status': 'queued'})
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -1660,3 +1988,88 @@ class SistemaInformacionViewSet(viewsets.ModelViewSet):
 
 # Hacemos la vista pública accesible sin autenticación
 shared_link_public.permission_classes = [AllowAny]
+
+
+class ImageAssetViewSet(viewsets.ModelViewSet):
+    queryset = ImageAsset.objects.all().order_by('-fecha_subida')
+    serializer_class = ImageAssetSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['repositorio', 'directorio', 'modulo', 'tipo_archivo', 'creado_por', 'estado']
+    search_fields = ['nombre_original', 'metadata']
+    ordering_fields = ['fecha_subida', 'nombre_original', 'tipo_archivo']
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        from .tasks import process_image
+        import os
+        import threading
+        
+        instance = serializer.save(creado_por=self.request.user)
+        
+        # ALWAYS process in background (threading) for fast response
+        # This prevents user waiting 20+ seconds
+        def process_in_background():
+            try:
+                process_image(str(instance.id))
+            except Exception as e:
+                logger.error(f"Error processing image in background: {e}")
+        
+        # Start background processing
+        thread = threading.Thread(target=process_in_background, daemon=True)
+        thread.start()
+        
+        logger.info(f"📸 Image {instance.id} saved, processing in background...")
+    
+    def _delete_image_files(self, image):
+        """Delete physical files associated with an image (original, web, thumbnail)."""
+        import os
+        from django.conf import settings
+        
+        archivos_a_eliminar = []
+
+        # 1. Archivo original (sources/)
+        if image.archivo_original:
+            try:
+                archivos_a_eliminar.append(image.archivo_original.path)
+                logger.info(f"  - Archivo original: {image.archivo_original.path}")
+            except Exception as e:
+                logger.error(f"  - Error obteniendo path del original: {e}")
+
+        # 2. Imagen web (support/)
+        if image.imagen_web:
+            try:
+                archivos_a_eliminar.append(image.imagen_web.path)
+                logger.info(f"  - Imagen web: {image.imagen_web.path}")
+            except Exception as e:
+                logger.error(f"  - Error obteniendo path de imagen web: {e}")
+
+        # 3. Thumbnail (thumbnails/)
+        if image.thumbnail:
+            try:
+                archivos_a_eliminar.append(image.thumbnail.path)
+                logger.info(f"  - Thumbnail: {image.thumbnail.path}")
+            except Exception as e:
+                logger.error(f"  - Error obteniendo path del thumbnail: {e}")
+
+        # Eliminar todos los archivos físicos
+        for archivo_path in archivos_a_eliminar:
+            try:
+                if os.path.exists(archivo_path):
+                    os.remove(archivo_path)
+                    logger.info(f"  ✓ Deleted: {archivo_path}")
+                else:
+                    logger.warning(f"  ⚠ Does not exist: {archivo_path}")
+            except Exception as e:
+                logger.error(f"  ✗ Error deleting {archivo_path}: {e}")
+
+    def destroy(self, request, *args, **kwargs):
+        """
+        Override destroy method to delete all physical files
+        associated with the image before deleting from database.
+        """
+        image = self.get_object()
+        logger.info(f"🗑️  Deleting image {image.id} - {image.nombre_original}")
+        self._delete_image_files(image)
+        # Finally, delete the database record
+        logger.info(f"  ✓ Database record deleted")
+        return super().destroy(request, *args, **kwargs)
