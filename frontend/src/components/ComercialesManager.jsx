@@ -2144,7 +2144,7 @@ function ComercialesManager() {
                               </div>
                             </td>
                               <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                                {item.data.pizarra?.cliente || item.data.repositorio_nombre}
+                                {item.data.pizarra?.cliente || '-'}
                               </td>
                               <td className="px-4 py-3 text-sm text-gray-700">
                                 {item.data.pizarra?.agencia || '-'}
@@ -2660,7 +2660,7 @@ function ComercialesManager() {
                         {comercial.pizarra?.producto || 'Untitled'}
                       </h3>
                       <p className="text-xs text-gray-600 truncate mb-1">
-                        {comercial.pizarra?.cliente || comercial.repositorio_nombre}
+                        {comercial.pizarra?.cliente || '-'}
                       </p>
                       <p className="text-xs text-gray-500 truncate mb-2">
                         {comercial.pizarra?.agencia || '-'}
