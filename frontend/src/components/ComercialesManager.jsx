@@ -267,6 +267,36 @@ function ComercialesManager() {
     setShowUploadForm(false);
   };
 
+  const handleProcessPending = async () => {
+    const pendingCount = comerciales.filter(c => 
+      c.estado_transcodificacion === 'PENDIENTE'
+    ).length;
+
+    if (pendingCount === 0) {
+      alert('No hay videos pendientes para procesar');
+      return;
+    }
+
+    if (!window.confirm(`¿Procesar ${pendingCount} video(s) pendiente(s)?\n\nEstos videos se procesarán en segundo plano.`)) {
+      return;
+    }
+
+    try {
+      const response = await axios.post('/api/broadcasts/process-pending/', {
+        repositorio: selectedRepo,
+        modulo: selectedModulo
+      });
+
+      alert(`✅ ${response.data.message}\n\nTotal: ${response.data.total_pendientes}\nEncolados: ${response.data.encolados}\n\nEl procesamiento se ejecutará en segundo plano.`);
+      
+      // Refrescar la lista para ver los cambios de estado
+      fetchComerciales();
+    } catch (error) {
+      console.error('Error procesando pendientes:', error);
+      alert('Error al procesar videos pendientes: ' + (error.response?.data?.error || error.message));
+    }
+  };
+
   const handleEditDirectory = (directorio) => {
     setEditingDirectory(directorio);
     setShowDirectoryForm(true);
@@ -846,6 +876,21 @@ function ComercialesManager() {
             </svg>
             {t('buttons.upload')}
           </button>
+
+          {/* Botón Procesar Pendientes */}
+          {comerciales.filter(c => c.estado_transcodificacion === 'PENDIENTE').length > 0 && (
+            <button
+              onClick={handleProcessPending}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white px-3 py-4 rounded text-sm font-semibold transition-colors flex items-center justify-center gap-2 animate-pulse"
+              title={`Procesar ${comerciales.filter(c => c.estado_transcodificacion === 'PENDIENTE').length} video(s) pendiente(s)`}
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Procesar {comerciales.filter(c => c.estado_transcodificacion === 'PENDIENTE').length} Pendiente(s)
+            </button>
+          )}
 
           <button
             onClick={() => setShowVersionHistory(true)}

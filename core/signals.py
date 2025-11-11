@@ -38,21 +38,19 @@ def _enqueue_or_sync_transcode(broadcast: Broadcast) -> str:
 
 @receiver(post_save, sender=Broadcast)
 def broadcast_auto_transcode(sender, instance: Broadcast, created: bool, **kwargs):
-    """Auto-dispara transcodificación cuando hay archivo y el estado es PENDIENTE.
-    Previene doble disparo porque la vista setea PROCESANDO antes de encolar.
-    Este hook cubre rutas alternativas (admin, cargas por otro serializer, etc.).
     """
-    try:
-        if not instance.archivo_original:
-            return
-
-        if instance.estado_transcodificacion != 'PENDIENTE':
-            return
-
-        # Marcar en PROCESANDO y disparar
-        instance.estado_transcodificacion = 'PROCESANDO'
-        instance.save(update_fields=['estado_transcodificacion'])
-        mode = _enqueue_or_sync_transcode(instance)
-        logger.info(f"🎬 [signals] Broadcast {instance.id} transcoding started via: {mode}")
-    except Exception as e:
-        logger.error(f"Error en señal broadcast_auto_transcode: {e}")
+    Signal DESHABILITADO para permitir uploads masivos sin procesamiento automático.
+    
+    El procesamiento ahora se dispara manualmente via:
+    - Botón "Procesar Pendientes" en el frontend
+    - Endpoint /api/broadcasts/process-pending/
+    - Action force_transcode para broadcasts individuales
+    
+    Esto permite:
+    1. Subir muchos videos rápidamente (quedan en PENDIENTE)
+    2. Cerrar el uploader cuando terminen todas las cargas
+    3. Disparar procesamiento en batch
+    4. Ver progreso en tiempo real con polling
+    """
+    # Signal deshabilitado - procesamiento manual solamente
+    return

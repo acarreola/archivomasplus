@@ -599,13 +599,14 @@ class BroadcastViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         """
-        Sobrescribimos el método create para manejar el upload de archivos
-        y disparar la tarea de transcodificación.
+        Sobrescribimos el método create para manejar el upload de archivos.
         
-        Flujo:
+        Flujo optimizado para uploads masivos:
         1. Guardar archivo (estado: PENDIENTE)
-        2. Devolver response inmediatamente al frontend
-        3. Procesamiento en background vía Celery o signal
+        2. Devolver response INMEDIATAMENTE al frontend
+        3. NO procesar automáticamente - esperar comando explícito
+        4. Esto permite cargar múltiples archivos rápidamente
+        5. Usuario puede disparar procesamiento en batch después
         """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -616,26 +617,10 @@ class BroadcastViewSet(viewsets.ModelViewSet):
         # Guardar broadcast - se crea con estado PENDIENTE por defecto
         broadcast = serializer.save(**extra)
         
-        # Si hay archivo original, encolar procesamiento de forma NO-BLOQUEANTE
-        if broadcast.archivo_original:
-            # Encolar tarea Celery de forma asíncrona
-            # NO actualizar estado aquí - dejar que el signal o la tarea lo haga
-            # Esto permite que el frontend reciba la respuesta inmediatamente
-            from celery import current_app
-            try:
-                insp = current_app.control.inspect()
-                has_workers = bool(insp and insp.stats())
-            except Exception:
-                has_workers = False
-            
-            if has_workers:
-                # Hay workers disponibles - encolar
-                transcode_video.delay(str(broadcast.id))
-                logger.info(f"🎬 Broadcast {broadcast.id} encolado para procesamiento (Celery)")
-            else:
-                # Sin workers - el signal lo manejará en el próximo save
-                # o podemos dejarlo en PENDIENTE para procesamiento manual
-                logger.warning(f"⚠️ Broadcast {broadcast.id} quedó en PENDIENTE - sin workers Celery")
+        # IMPORTANTE: NO procesamos automáticamente en create()
+        # El archivo queda en PENDIENTE esperando procesamiento manual/batch
+        # Esto permite uploads masivos sin saturar el sistema
+        logger.info(f"📦 Broadcast {broadcast.id} guardado en PENDIENTE - esperando procesamiento")
         
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
@@ -717,6 +702,69 @@ class BroadcastViewSet(viewsets.ModelViewSet):
 
         mode = self._enqueue_transcode(broadcast)
         return Response({'status': 'ok', 'mode': mode, 'id': str(broadcast.id)})
+
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
+    def process_pending(self, request):
+        """
+        Procesar todos los broadcasts en estado PENDIENTE en batch.
+        
+        Ideal para uso después de uploads masivos:
+        1. Usuario sube múltiples archivos (quedan en PENDIENTE)
+        2. Cierra el uploader cuando todas las cargas terminan
+        3. Dispara este endpoint para procesar todo en batch
+        4. Frontend hace polling para ver el progreso
+        
+        Parámetros opcionales:
+        - repositorio: filtrar por repositorio específico
+        - modulo: filtrar por módulo específico
+        - limit: máximo de videos a procesar (default: sin límite)
+        """
+        # Filtros opcionales
+        queryset = Broadcast.objects.filter(
+            archivo_original__isnull=False,
+            estado_transcodificacion='PENDIENTE'
+        )
+        
+        # Filtrar por repositorio si se especifica
+        repositorio_id = request.data.get('repositorio')
+        if repositorio_id:
+            queryset = queryset.filter(repositorio_id=repositorio_id)
+        
+        # Filtrar por módulo si se especifica
+        modulo_id = request.data.get('modulo')
+        if modulo_id:
+            queryset = queryset.filter(modulo_id=modulo_id)
+        
+        # Límite opcional
+        limit = request.data.get('limit')
+        if limit:
+            queryset = queryset[:int(limit)]
+        
+        pending_broadcasts = list(queryset)
+        total = len(pending_broadcasts)
+        
+        if total == 0:
+            return Response({
+                'message': 'No hay broadcasts pendientes para procesar',
+                'total': 0
+            })
+        
+        # Encolar todos los broadcasts
+        enqueued = 0
+        for broadcast in pending_broadcasts:
+            try:
+                transcode_video.delay(str(broadcast.id))
+                enqueued += 1
+                logger.info(f"🎬 Broadcast {broadcast.id} encolado para procesamiento batch")
+            except Exception as e:
+                logger.error(f"Error encolando broadcast {broadcast.id}: {e}")
+        
+        return Response({
+            'message': f'Procesamiento batch iniciado',
+            'total_pendientes': total,
+            'encolados': enqueued,
+            'broadcast_ids': [str(b.id) for b in pending_broadcasts]
+        })
 
     def destroy(self, request, *args, **kwargs):
         """
@@ -901,11 +949,18 @@ class StorageAssetViewSet(viewsets.ModelViewSet):
 
         return Response({'message': f'Purga completada: {total} broadcasts eliminados, {files_deleted} archivos eliminados.'})
     
-    @action(detail=False, methods=['post'], url_path='encode')
+    @action(detail=False, methods=['post'], url_path='encode', permission_classes=[IsAuthenticated])
     def encode_custom(self, request):
         """
         Endpoint para codificación personalizada de videos.
         Recibe la configuración de encoding y dispara una tarea Celery.
+        
+        POST /api/broadcasts/encode/
+        Body: {
+            broadcast_id: uuid,
+            settings: {...},
+            preset_id: string
+        }
         """
         broadcast_id = request.data.get('broadcast_id')
         settings_data = request.data.get('settings', {})
