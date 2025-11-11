@@ -599,28 +599,24 @@ class BroadcastViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         """
-        Sobrescribimos el método create para manejar el upload de archivos.
-        
-        Flujo optimizado para uploads masivos:
-        1. Guardar archivo (estado: PENDIENTE)
-        2. Devolver response INMEDIATAMENTE al frontend
-        3. NO procesar automáticamente - esperar comando explícito
-        4. Esto permite cargar múltiples archivos rápidamente
-        5. Usuario puede disparar procesamiento en batch después
+        Sobrescribimos el método create para manejar el upload de archivos
+        y disparar la tarea de transcodificación.
         """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         extra = {}
         if request.user and request.user.is_authenticated:
             extra['creado_por'] = request.user
-        
-        # Guardar broadcast - se crea con estado PENDIENTE por defecto
         broadcast = serializer.save(**extra)
         
-        # IMPORTANTE: NO procesamos automáticamente en create()
-        # El archivo queda en PENDIENTE esperando procesamiento manual/batch
-        # Esto permite uploads masivos sin saturar el sistema
-        logger.info(f"📦 Broadcast {broadcast.id} guardado en PENDIENTE - esperando procesamiento")
+        # Si hay un archivo original, disparar la tarea de transcodificación
+        if broadcast.archivo_original:
+            # Actualizar estado a PROCESANDO
+            broadcast.estado_transcodificacion = 'PROCESANDO'
+            broadcast.save()
+            
+            # Disparar tarea Celery asíncrona
+            transcode_video.delay(str(broadcast.id))
         
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
