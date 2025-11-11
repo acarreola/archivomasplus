@@ -15,7 +15,7 @@ from .serializers import (
     UserSerializer, SharedLinkSerializer, SharedLinkPublicSerializer, DirectorioSerializer,
     RepositorioPermisoSerializer, ModuloSerializer, PerfilSerializer, SistemaInformacionSerializer, ImageAssetSerializer, StorageAssetSerializer, ProcessingErrorSerializer
 )
-from .tasks import transcode_video
+from .tasks import transcode_video, process_audio, process_image
 
 logger = logging.getLogger(__name__)
 @api_view(['GET'])
@@ -591,36 +591,13 @@ class ProcessingErrorViewSet(viewsets.ReadOnlyModelViewSet):
         
         # Si hay un archivo original, disparar la tarea de transcodificación
         if broadcast.archivo_original:
-            import threading
-            import os
-            from django.conf import settings
-            # Log adicional para diagnóstico: existencia física del archivo
-            try:
-                original_path = broadcast.archivo_original.path
-                existe = os.path.exists(original_path)
-                logger.info(f"🔎 Archivo original guardado: {original_path} (exists={existe})")
-            except Exception as e:
-                logger.error(f"⚠️ No se pudo obtener path físico del archivo original: {e}")
-            
             # Actualizar estado a PROCESANDO
             broadcast.estado_transcodificacion = 'PROCESANDO'
             broadcast.save()
             
-            # Process in background using threading (no Redis/Celery needed)
-            def process_in_background():
-                try:
-                    # Ejecutar la tarea de forma síncrona para entorno sin Celery worker
-                    try:
-                        transcode_video.run(str(broadcast.id))
-                    except Exception:
-                        # Fallback a invocación directa (algunos decoradores permiten llamada directa)
-                        transcode_video(str(broadcast.id))
-                except Exception as e:
-                    logger.error(f"Error transcoding video in background: {e}")
-            
-            thread = threading.Thread(target=process_in_background, daemon=True)
-            thread.start()
-            logger.info(f"🎬 Broadcast {broadcast.id} saved, transcoding in background...")
+            # Disparar tarea Celery asíncrona
+            transcode_video.delay(str(broadcast.id))
+            logger.info(f"🎬 Broadcast {broadcast.id} queued for transcoding")
         
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
@@ -909,17 +886,8 @@ class StorageAssetViewSet(viewsets.ModelViewSet):
             broadcast.last_error = None
             broadcast.save(update_fields=['estado_transcodificacion', 'last_error'])
             
-            # Use threading instead of Celery
-            import threading
-            
-            def process_in_background():
-                try:
-                    transcode_video(str(broadcast.id))
-                except Exception as e:
-                    logger.error(f"Error transcoding video in background: {e}")
-            
-            thread = threading.Thread(target=process_in_background, daemon=True)
-            thread.start()
+            # Disparar tarea Celery
+            transcode_video.delay(str(broadcast.id))
             
             logger.info(f"🔄 Reprocessing started for broadcast {broadcast.id}")
             return Response({'status': 'queued', 'broadcast_id': str(broadcast.id)})
@@ -1017,17 +985,8 @@ class StorageAssetViewSet(viewsets.ModelViewSet):
             b.last_error = None
             b.save(update_fields=['estado_transcodificacion', 'last_error'])
             
-            # Use threading instead of Celery
-            import threading
-            
-            def process_in_background(broadcast_id):
-                try:
-                    transcode_video(broadcast_id)
-                except Exception as e:
-                    logger.error(f"Error transcoding video in background: {e}")
-            
-            thread = threading.Thread(target=process_in_background, args=(str(b.id),), daemon=True)
-            thread.start()
+            # Disparar tarea Celery
+            transcode_video.delay(str(b.id))
             queued += 1
 
         logger.info(f"🔁 Retry failed: queued {queued}/{total} broadcasts")
@@ -1246,17 +1205,8 @@ class StorageAssetViewSet(viewsets.ModelViewSet):
                 broadcast.estado_transcodificacion = 'PROCESANDO'
                 broadcast.save()
                 
-                # Use threading instead of Celery
-                import threading
-                
-                def process_in_background(broadcast_id):
-                    try:
-                        transcode_video(broadcast_id)
-                    except Exception as e:
-                        logger.error(f"Error transcoding video in background: {e}")
-                
-                thread = threading.Thread(target=process_in_background, args=(str(broadcast.id),), daemon=True)
-                thread.start()
+                # Disparar tarea Celery
+                transcode_video.delay(str(broadcast.id))
                 
                 initiated.append({
                     'id': str(broadcast.id),
@@ -1584,17 +1534,8 @@ class StorageAssetViewSet(viewsets.ModelViewSet):
             b.estado_transcodificacion = 'PROCESANDO'
             b.save(update_fields=['last_error', 'estado_transcodificacion'])
             
-            # Use threading instead of Celery
-            import threading
-            
-            def process_in_background():
-                try:
-                    transcode_video(str(b.id))
-                except Exception as e:
-                    logger.error(f"Error transcoding video in background: {e}")
-            
-            thread = threading.Thread(target=process_in_background, daemon=True)
-            thread.start()
+            # Disparar tarea Celery
+            transcode_video.delay(str(b.id))
             
             return Response({'status': 'queued', 'id': str(b.id)})
         except Exception as e:
@@ -1637,17 +1578,8 @@ class StorageAssetViewSet(viewsets.ModelViewSet):
             b.estado_transcodificacion = 'PROCESANDO'
             b.save(update_fields=['last_error', 'estado_transcodificacion'])
             
-            # Use threading instead of Celery
-            import threading
-            
-            def process_in_background(broadcast_id):
-                try:
-                    transcode_video(broadcast_id)
-                except Exception as e:
-                    logger.error(f"Error transcoding video in background: {e}")
-            
-            thread = threading.Thread(target=process_in_background, args=(str(b.id),), daemon=True)
-            thread.start()
+            # Disparar tarea Celery
+            transcode_video.delay(str(b.id))
             queued += 1
 
         return Response({
@@ -1837,19 +1769,9 @@ class AudioViewSet(viewsets.ModelViewSet):
             audio.estado_procesamiento = 'PROCESANDO'
             audio.save()
             
-            # Use threading instead of Celery
-            import threading
-            from core.tasks import process_audio
-            
-            def process_in_background():
-                try:
-                    process_audio(str(audio.id))
-                except Exception as e:
-                    logger.error(f"Error processing audio in background: {e}")
-            
-            thread = threading.Thread(target=process_in_background, daemon=True)
-            thread.start()
-            logger.info(f"🎵 Audio {audio.id} saved, processing in background...")
+            # Disparar tarea Celery
+            process_audio.delay(str(audio.id))
+            logger.info(f"🎵 Audio {audio.id} queued for processing")
         
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
@@ -1923,18 +1845,8 @@ class AudioViewSet(viewsets.ModelViewSet):
             audio.estado_procesamiento = 'PROCESANDO'
             audio.save(update_fields=['estado_procesamiento'])
             
-            # Use threading instead of Celery
-            import threading
-            from core.tasks import process_audio
-            
-            def process_in_background():
-                try:
-                    process_audio(str(audio.id))
-                except Exception as e:
-                    logger.error(f"Error processing audio in background: {e}")
-            
-            thread = threading.Thread(target=process_in_background, daemon=True)
-            thread.start()
+            # Disparar tarea Celery
+            process_audio.delay(str(audio.id))
             
             return Response({'status': 'queued'})
         except Exception as e:
@@ -2000,25 +1912,11 @@ class ImageAssetViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def perform_create(self, serializer):
-        from .tasks import process_image
-        import os
-        import threading
-        
         instance = serializer.save(creado_por=self.request.user)
         
-        # ALWAYS process in background (threading) for fast response
-        # This prevents user waiting 20+ seconds
-        def process_in_background():
-            try:
-                process_image(str(instance.id))
-            except Exception as e:
-                logger.error(f"Error processing image in background: {e}")
-        
-        # Start background processing
-        thread = threading.Thread(target=process_in_background, daemon=True)
-        thread.start()
-        
-        logger.info(f"📸 Image {instance.id} saved, processing in background...")
+        # Disparar tarea Celery
+        process_image.delay(str(instance.id))
+        logger.info(f"📸 Image {instance.id} queued for processing")
     
     def _delete_image_files(self, image):
         """Delete physical files associated with an image (original, web, thumbnail)."""

@@ -211,7 +211,7 @@ REST_FRAMEWORK = {
 # settings.py (al final)
 # Celery Configuration Options
 # Support both Docker (redis:6379) and native (localhost:6379) setups
-REDIS_HOST = os.getenv('REDIS_HOST', 'redis')
+REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
 REDIS_PORT = os.getenv('REDIS_PORT', '6379')
 REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', '')
 REDIS_DB = os.getenv('REDIS_DB', '0')
