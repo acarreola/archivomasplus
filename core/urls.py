@@ -5,7 +5,8 @@ from .views import (
     UserViewSet, DirectorioViewSet, RepositorioPermisoViewSet, ModuloViewSet,
     PerfilViewSet, SistemaInformacionViewSet, current_user, shared_link_public, 
     login_view, logout_view, forgot_password, reset_password, smtp_config, smtp_test,
-    ImageAssetViewSet, StorageAssetViewSet, purge_all, ffmpeg_health, ProcessingErrorViewSet
+    ImageAssetViewSet, StorageAssetViewSet, purge_all, ffmpeg_health, ProcessingErrorViewSet, EncodingPresetViewSet,
+    stream_broadcast_media
 )
 from . import csv_views
 
@@ -25,12 +26,16 @@ router.register(r'images', ImageAssetViewSet, basename='imageasset')
 # Storage module endpoint (accepts all file types)
 router.register(r'storage', StorageAssetViewSet, basename='storageasset')
 router.register(r'processing-errors', ProcessingErrorViewSet, basename='processing-error')
+# Encoding presets endpoint (admin-managed FFmpeg configurations)
+router.register(r'encoding-presets', EncodingPresetViewSet, basename='encoding-preset')
 
 urlpatterns = [
     path('', include(router.urls)),
     path('admin/purge-all/', purge_all, name='purge-all'),
     path('auth/me/', current_user, name='current-user'),
     path('health/ffmpeg/', ffmpeg_health, name='ffmpeg-health'),
+    # Streaming con soporte de Range para el proxy de reproducción
+    path('broadcasts/<uuid:pk>/stream/', stream_broadcast_media, name='stream-broadcast-media'),
     path('auth/login/', login_view, name='login'),
     path('auth/logout/', logout_view, name='logout'),
     path('auth/forgot-password/', forgot_password, name='forgot-password'),

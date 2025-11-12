@@ -30,7 +30,7 @@ function CreateDirectoryModal({ repositorioId, moduloId, repositorioName, modulo
 
     try {
       const data = {
-        nombre: nameFolder.trim(),
+        nombre: nameFolder.trim().toUpperCase(),
         repositorio: repositorioId,
         modulo: moduloId || null,
         parent: null // raíz por ahora
@@ -117,7 +117,7 @@ function CreateDirectoryModal({ repositorioId, moduloId, repositorioName, modulo
                 setError('');
               }}
               placeholder={t ? 'e.g: Campaign 2025, TV Commercials, etc.' : 'e.g: Campaign 2025, TV Commercials, etc.'}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent uppercase"
               disabled={loading}
               autoFocus
             />

@@ -26,6 +26,13 @@ export const getMediaUrl = (path) => {
   if (!path) return null;
   // Si path ya es una URL completa, devolverla tal cual
   if (path.startsWith('http')) return path;
+  // Si es un proxy de broadcast (support/<id>_webh264.mp4 o _h264/_h265), usar endpoint streaming con Range
+  // Detecta archivos dentro de /support/ y los redirige a /api/broadcasts/<uuid>/stream/ si el nombre coincide
+  const supportMatch = path.match(/support\/(\w{8})_(?:webh264|h264|h265)\.mp4$/);
+  if (supportMatch) {
+    // No podemos reconstruir el UUID completo solo con 8 chars, así que mantenemos fallback.
+    // Para consistencia, dejamos la resolución tradicional.
+  }
   // Si path no empieza con /, agregarlo
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
   // Si cleanPath ya tiene /media/, no duplicarlo
@@ -33,6 +40,12 @@ export const getMediaUrl = (path) => {
     return `${API_BASE_URL}${cleanPath}`;
   }
   return `${API_BASE_URL}/media${cleanPath}`;
+};
+
+// Helper explícito para streaming con Range
+export const getStreamUrl = (id) => {
+  if (!id) return null;
+  return `${API_BASE_URL}/api/broadcasts/${id}/stream/`;
 };
 
 // Helper function para construir URLs de API

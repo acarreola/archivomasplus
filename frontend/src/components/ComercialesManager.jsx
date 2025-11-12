@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import axios, { getMediaUrl, getApiUrl } from '../utils/axios';
+import axios, { getMediaUrl, getApiUrl, getStreamUrl } from '../utils/axios';
 import UploadForm from '../UploadForm';
 import MultiFileUploader from './MultiFileUploader';
 import ComercialEditModal from './ComercialEditModal';
@@ -17,7 +17,8 @@ import { useAuth } from '../context/AuthContext';
 import { getFileIcon, getExtensionBadge } from '../utils/fileIcons';
 
 function ComercialesManager() {
-  console.log('🔄 ComercialesManager LOADED - VERSION 2.0 con soporte Images');
+  // Log control refs to avoid noisy console spam in dev (StrictMode double renders, etc.)
+  const initialLogRef = useRef(false);
   const { language, toggleLanguage, t } = useLanguage();
   const { user } = useAuth();
   const [repositorios, setRepositorios] = useState([]);
@@ -46,6 +47,7 @@ function ComercialesManager() {
   const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [showErrorLog, setShowErrorLog] = useState(false);
+  const [showStatusModal, setShowStatusModal] = useState(null); // 'error', 'pending', 'processing', 'metadata_only'
   
   // Advanced search filters
   const [filters, setFilters] = useState({
@@ -59,6 +61,23 @@ function ComercialesManager() {
     nombre: ''
   });
 
+  // Lista fija de formatos permitidos en el buscador
+  const formatOptions = [
+    'MASTER',
+    'GENERICO',
+    'INTERGENERICO',
+    'INTERGENERICO CON LOGOS',
+    'SUBTITULADO',
+    'PISTA'
+  ];
+
+  // Normalizador sin acentos para comparaciones de formato
+  const normalizeStr = (s) => (s || '')
+    .toString()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 25;
@@ -69,6 +88,34 @@ function ComercialesManager() {
   // Ref to prevent multiple simultaneous fetches
   const fetchingRef = useRef(false);
   const mountedRef = useRef(false);
+  const moduloLogRef = useRef(null);
+  // Parser de búsqueda rápida con calificadores (product:, cliente:, agency:, version:, time:, format:, date:, file:)
+  const parseQuickSearch = useCallback((raw) => {
+    const term = (raw || '').trim();
+    if (!term) return { quick: {}, free: '' };
+    const map = {
+      product: 'producto', producto: 'producto',
+      client: 'cliente', cliente: 'cliente',
+      agency: 'agencia', agencia: 'agencia',
+      version: 'version',
+      time: 'duracion', duracion: 'duracion', tiempo: 'duracion',
+      format: 'formato', formato: 'formato', ext: 'formato',
+      date: 'fecha', fecha: 'fecha',
+      file: 'nombre', filename: 'nombre', nombre: 'nombre', name: 'nombre'
+    };
+    const quick = {};
+    const re = /(product|producto|client|cliente|agency|agencia|version|time|duracion|tiempo|format|formato|ext|date|fecha|file|filename|nombre|name)\s*:\s*([^:]+?)(?=\s+\w+\s*:|$)/gi;
+    let m; const consumed = [];
+    while ((m = re.exec(term)) !== null) {
+      const key = map[m[1].toLowerCase()];
+      const value = (m[2] || '').trim();
+      if (key && value) { quick[key] = value; consumed.push(m[0]); }
+    }
+    let free = term;
+    consumed.forEach(c => { free = free.replace(c, ' '); });
+    free = free.replace(/\s+/g, ' ').trim();
+    return { quick, free };
+  }, []);
 
   useEffect(() => {
     if (!mountedRef.current) {
@@ -87,7 +134,7 @@ function ComercialesManager() {
       
       return () => clearTimeout(timer);
     }
-  }, [selectedRepo, selectedModulo, uploadCount]);
+  }, [selectedRepo, selectedModulo, uploadCount, searchTerm]);
 
   // Polling para actualizar estado de videos en proceso
   useEffect(() => {
@@ -97,14 +144,20 @@ function ComercialesManager() {
     );
     
     if (processing.length > 0) {
+      console.log(`🔄 ${processing.length} videos procesando, polling activado`);
       // Refrescar cada 5 segundos si hay videos procesando
       const interval = setInterval(() => {
-        fetchComerciales();
+        if (!fetchingRef.current) {
+          fetchComerciales();
+        }
       }, 5000);
       
-      return () => clearInterval(interval);
+      return () => {
+        console.log('🛑 Polling detenido');
+        clearInterval(interval);
+      };
     }
-  }, [comerciales]);
+  }, [comerciales.filter(c => c.estado_transcodificacion === 'PROCESANDO' || c.estado_transcodificacion === 'PENDIENTE').length]);
 
   // Helper function to get modules
   const getSelectedRepoModulos = () => {
@@ -113,14 +166,70 @@ function ComercialesManager() {
     return repo?.modulos_detalle || [];
   };
 
-  // Derived state: Check module type
-  const currentModuloInfo = selectedModulo 
+  // Extra helper: return only the filename (basename) without directory path
+  const getBasename = (name) => {
+    if (!name || typeof name !== 'string') return '';
+    // Split by '/' and filter empty segments, then take last
+    const parts = name.split('/').filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : name;
+  };
+
+  // Derived state: Check module type (memoized by simple variable usage inside render)
+  const currentModuloInfo = selectedModulo
     ? getSelectedRepoModulos().find(m => m.id === selectedModulo)
     : null;
   const isAudioModule = currentModuloInfo?.tipo === 'audio';
   const isImagesModule = currentModuloInfo?.tipo === 'images';
-  
-  console.log('🔍 Módulo actual:', currentModuloInfo?.tipo, '| Audio:', isAudioModule, '| Images:', isImagesModule);
+
+  // One-time component mount log
+  useEffect(() => {
+    if (!initialLogRef.current) {
+      // Only log once per full mount (not every render)
+      // eslint-disable-next-line no-console
+      console.log('🔄 ComercialesManager mounted (v2.0 images support)');
+      initialLogRef.current = true;
+    }
+  }, []);
+
+  // Log module changes only when the modulo id or type actually changes
+  useEffect(() => {
+    const key = currentModuloInfo ? `${currentModuloInfo.id}:${currentModuloInfo.tipo}` : 'none';
+    if (moduloLogRef.current !== key) {
+      moduloLogRef.current = key;
+      // eslint-disable-next-line no-console
+      console.log('🔍 Módulo actual ->', currentModuloInfo?.tipo || 'N/A', '| id:', currentModuloInfo?.id || '—');
+    }
+  }, [currentModuloInfo]);
+
+  // Auto-select first repository & its broadcast module (or first module) to reduce transient renders
+  useEffect(() => {
+    if (repositorios.length && !selectedRepo) {
+      const firstRepo = repositorios[0];
+      setSelectedRepo(firstRepo.id);
+      // Prefer broadcast module; fallback to first available
+      const preferredModulo = firstRepo.modulos_detalle?.find(m => m.tipo === 'broadcast') || firstRepo.modulos_detalle?.[0];
+      if (preferredModulo) {
+        setSelectedModulo(preferredModulo.id);
+      }
+    }
+  }, [repositorios, selectedRepo]);
+
+  // When user changes repository manually, auto-select its broadcast module (or first module) if current module is null or belongs to previous repo
+  useEffect(() => {
+    if (!selectedRepo) return;
+    const repo = repositorios.find(r => r.id === selectedRepo);
+    if (!repo) return;
+    const modules = repo.modulos_detalle || [];
+    const moduleStillValid = selectedModulo && modules.some(m => m.id === selectedModulo);
+    if (moduleStillValid) return; // Keep current selection if valid for this repo
+    const broadcastModulo = modules.find(m => m.tipo === 'broadcast');
+    const targetModulo = broadcastModulo || modules[0];
+    if (targetModulo) {
+      setSelectedModulo(targetModulo.id);
+    } else {
+      setSelectedModulo(null);
+    }
+  }, [selectedRepo, repositorios]);
 
   const fetchCurrentUser = () => {
     // console.info('📡 Fetching current user...');
@@ -187,8 +296,9 @@ function ComercialesManager() {
       params.push(`modulo=${selectedModulo}`);
     }
     
-    // Incluir parámetro de búsqueda para aprovechar el SearchFilter del backend
-    const effectiveSearch = (searchTerm && searchTerm.trim()) ? searchTerm.trim() : (filters.nombre && filters.nombre.trim()) ? filters.nombre.trim() : '';
+    // Unificar búsqueda: parsear calificadores; backend solo recibe el free text
+    const { quick, free } = parseQuickSearch(searchTerm);
+    const effectiveSearch = free;
     if (effectiveSearch) {
       params.push(`search=${encodeURIComponent(effectiveSearch)}`);
     }
@@ -441,7 +551,8 @@ function ComercialesManager() {
       'PENDIENTE': 'bg-yellow-100 text-yellow-800',
       'PROCESANDO': 'bg-blue-100 text-blue-800',
       'COMPLETADO': 'bg-green-100 text-green-800',
-      'ERROR': 'bg-red-100 text-red-800'
+      'ERROR': 'bg-red-100 text-red-800',
+      'METADATA_ONLY': 'bg-purple-100 text-purple-800'
     };
     return badges[estado] || 'bg-gray-100 text-gray-800';
   };
@@ -522,79 +633,84 @@ function ComercialesManager() {
     return colors[tipo] || (isSelected ? 'bg-gray-600 text-white' : 'bg-gray-100 text-gray-800 hover:bg-gray-200');
   };
 
-  // Filtrado de búsqueda avanzada
+  // Combinar filtros avanzados con calificadores rápidos
+  const { quick: quickFilters } = parseQuickSearch(searchTerm);
+  const merged = { ...filters, ...quickFilters };
+
   const filteredComerciales = comerciales.filter(comercial => {
-    // Búsqueda rápida (barra superior)
-    if (searchTerm) {
-      const search = searchTerm.toLowerCase();
-      const cliente = comercial.pizarra?.cliente?.toLowerCase() || '';
-      const agencia = comercial.pizarra?.agencia?.toLowerCase() || '';
-      const producto = comercial.pizarra?.producto?.toLowerCase() || '';
-      const version = comercial.pizarra?.version?.toLowerCase() || '';
-      const nombreArchivo = (comercial.nombre_original || '').toLowerCase();
-      const tipoArchivo = (comercial.tipo_archivo || '').toLowerCase();
-      
-      const matchesQuickSearch = cliente.includes(search) || 
-                                 agencia.includes(search) || 
-                                 producto.includes(search) || 
-                                 version.includes(search) ||
-                                 nombreArchivo.includes(search) ||
-                                 tipoArchivo.includes(search);
-      
-      if (!matchesQuickSearch) return false;
-    }
-    
-    // Filtros avanzados
-    if (filters.cliente && !(comercial.pizarra?.cliente?.toLowerCase() || '').includes(filters.cliente.toLowerCase())) {
+    if (merged.cliente && !(comercial.pizarra?.cliente?.toLowerCase() || '').includes(merged.cliente.toLowerCase())) {
       return false;
     }
-    if (filters.agencia && !(comercial.pizarra?.agencia?.toLowerCase() || '').includes(filters.agencia.toLowerCase())) {
+    if (merged.agencia && !(comercial.pizarra?.agencia?.toLowerCase() || '').includes(merged.agencia.toLowerCase())) {
       return false;
     }
-    if (filters.producto && !(comercial.pizarra?.producto?.toLowerCase() || '').includes(filters.producto.toLowerCase())) {
+    if (merged.producto && !(comercial.pizarra?.producto?.toLowerCase() || '').includes(merged.producto.toLowerCase())) {
       return false;
     }
-    if (filters.version && !(comercial.pizarra?.version?.toLowerCase() || '').includes(filters.version.toLowerCase())) {
+    if (merged.version && !(comercial.pizarra?.version?.toLowerCase() || '').includes(merged.version.toLowerCase())) {
       return false;
     }
-    if (filters.duracion && !(comercial.pizarra?.duracion?.toLowerCase() || '').includes(filters.duracion.toLowerCase())) {
+    if (merged.duracion && !(comercial.pizarra?.duracion?.toLowerCase() || '').includes(merged.duracion.toLowerCase())) {
       return false;
     }
-    if (filters.formato && !(comercial.pizarra?.formato?.toLowerCase() || '').includes(filters.formato.toLowerCase())) {
-      return false;
-    }
-    if (filters.fecha && comercial.fecha_subida) {
-      const comercialDate = new Date(comercial.fecha_subida).toISOString().split('T')[0];
-      if (!comercialDate.includes(filters.fecha)) {
-        return false;
+    // formato/extensión basado en nombre de archivo
+    if (merged.formato) {
+      // Filtrar por etiqueta de formato en pizarra.formato si existe, sino por extensión de archivo.
+      const target = normalizeStr(merged.formato);
+      const tag = normalizeStr(comercial.pizarra?.formato || comercial.pizarra?.type || comercial.pizarra?.vtype);
+      if (tag) {
+        if (!tag.includes(target)) return false;
+      } else {
+        const nombre = (comercial.nombre_original || '').toLowerCase();
+        const ext = target.replace(/^\./,'');
+        if (ext && !nombre.endsWith('.' + ext)) return false;
       }
     }
-    if (filters.nombre) {
-      const nombreFilter = filters.nombre.toLowerCase();
-      const nombreProducto = (comercial.pizarra?.producto || '').toLowerCase();
+    if (merged.fecha && comercial.fecha_subida) {
+      const fecha = String(comercial.fecha_subida).slice(0,10);
+      if (fecha !== merged.fecha) return false;
+    }
+    if (merged.nombre) {
+      const needle = merged.nombre.toLowerCase();
       const nombreArchivo = (comercial.nombre_original || '').toLowerCase();
-      if (!(nombreProducto.includes(nombreFilter) || nombreArchivo.includes(nombreFilter))) {
-        return false;
-      }
+      const prod = (comercial.pizarra?.producto || '').toLowerCase();
+      if (!(nombreArchivo.includes(needle) || prod.includes(needle))) return false;
     }
     
     return true;
   });
 
+  // Detectar si hay búsqueda activa
+  const efectiveSearch = (searchTerm && searchTerm.trim()) ? searchTerm.trim() : '';
+  const parsedQuick = parseQuickSearch(searchTerm);
+  const hasQualifierFilters = Object.values(parsedQuick.quick).some(v => (v||'').trim());
+  // Detectar filtros avanzados (form inputs) activos
+  const hasAdvancedFilters = Object.values(filters).some(v => (v || '').trim());
+  
   // Filtrar directorios por directorio padre si hay uno seleccionado
-  const filteredDirectorios = selectedDirectory === null 
-    ? directorios.filter(d => !d.parent) // Solo directorios raíz si no hay selección
-    : directorios.filter(d => d.parent === selectedDirectory);
+  // Durante búsqueda, ocultar directorios para mostrar solo archivos
+  const filteredDirectorios = (efectiveSearch || hasQualifierFilters || hasAdvancedFilters)
+    ? [] // No mostrar directorios durante búsqueda
+    : selectedDirectory === null 
+      ? directorios.filter(d => !d.parent) // Solo directorios raíz si no hay selección
+      : directorios.filter(d => d.parent === selectedDirectory);
 
   // Filtrar comerciales por directorio si hay uno seleccionado
-  const comercialesFiltrados = selectedDirectory 
-    ? filteredComerciales.filter(c => c.directorio === selectedDirectory)
-    : filteredComerciales.filter(c => !c.directorio); // Solo comerciales sin directorio si no hay selección
+  // PERO si hay búsqueda activa, mostrar TODOS los resultados del repositorio/módulo
+  const comercialesFiltrados = (efectiveSearch || hasQualifierFilters || hasAdvancedFilters)
+    ? filteredComerciales // Mostrar TODOS los resultados de búsqueda, sin filtrar por directorio
+    : selectedDirectory 
+      ? filteredComerciales.filter(c => c.directorio === selectedDirectory)
+      : filteredComerciales.filter(c => !c.directorio); // Solo comerciales sin directorio si no hay selección
 
   // Cálculos de paginación - Combinar directorios y comerciales
   const totalItems = filteredDirectorios.length + comercialesFiltrados.length;
   const totalFiles = filteredComerciales.length;
   const stanbyFiles = filteredComerciales.filter(c => c.estado_transcodificacion === 'COMPLETADO').length;
+  const pendingFiles = filteredComerciales.filter(c => c.estado_transcodificacion === 'PENDIENTE').length;
+  const processingFiles = filteredComerciales.filter(c => c.estado_transcodificacion === 'PROCESANDO').length;
+  const errorFiles = filteredComerciales.filter(c => c.estado_transcodificacion === 'ERROR').length;
+  const metadataOnlyFiles = filteredComerciales.filter(c => c.estado_transcodificacion === 'METADATA_ONLY').length;
   const totalPages = Math.ceil(totalItems / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
@@ -639,34 +755,127 @@ function ComercialesManager() {
         />
       )}
 
+      {/* Modal de Estado (Errores, Pending, etc.) */}
+      {showStatusModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-2xl max-w-4xl w-full max-h-[80vh] flex flex-col">
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+              <h2 className="text-xl font-bold text-gray-900">
+                {showStatusModal === 'error' && `⚠️ Archivos con Errores (${errorFiles})`}
+                {showStatusModal === 'pending' && `⏳ Archivos Pendientes (${pendingFiles})`}
+                {showStatusModal === 'processing' && `🔄 Archivos Procesando (${processingFiles})`}
+                {showStatusModal === 'metadata_only' && `📋 Solo Metadata (${metadataOnlyFiles})`}
+              </h2>
+              <button
+                onClick={() => setShowStatusModal(null)}
+                className="text-gray-500 hover:text-gray-800 text-2xl font-light"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="space-y-2">
+                {filteredComerciales
+                  .filter(c => {
+                    if (showStatusModal === 'error') return c.estado_transcodificacion === 'ERROR';
+                    if (showStatusModal === 'pending') return c.estado_transcodificacion === 'PENDIENTE';
+                    if (showStatusModal === 'processing') return c.estado_transcodificacion === 'PROCESANDO';
+                    if (showStatusModal === 'metadata_only') return c.estado_transcodificacion === 'METADATA_ONLY';
+                    return false;
+                  })
+                  .map(comercial => (
+                    <div
+                      key={comercial.id}
+                      className="bg-gray-50 border border-gray-200 rounded-lg p-3 hover:bg-gray-100 transition-colors flex justify-between items-center"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-gray-900 truncate">
+                          📁 {getBasename(comercial.nombre_original || 'Sin nombre')}
+                        </p>
+                        {comercial.error_message && (
+                          <p className="text-xs text-red-600 mt-1 truncate">
+                            ⚠️ {comercial.error_message}
+                          </p>
+                        )}
+                      </div>
+                      <div className="ml-4 flex gap-2 flex-shrink-0">
+                        <button
+                          onClick={() => {
+                            setEditingComercial(comercial);
+                            setShowStatusModal(null);
+                          }}
+                          className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded"
+                        >
+                          Editar
+                        </button>
+                        {showStatusModal === 'error' && (
+                          <button
+                            onClick={async () => {
+                              if (window.confirm('¿Reintentar procesamiento?')) {
+                                try {
+                                  await axios.post(`/api/broadcasts/${comercial.id}/reprocess/`);
+                                  alert('✓ Reencolado para procesamiento');
+                                  fetchComerciales();
+                                } catch (e) {
+                                  alert('⚠️ Error al reintentar: ' + (e.response?.data?.error || e.message));
+                                }
+                              }
+                            }}
+                            className="px-3 py-1 bg-yellow-600 hover:bg-yellow-700 text-white text-xs rounded"
+                          >
+                            Reintentar
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-lg">
+              <button
+                onClick={() => setShowStatusModal(null)}
+                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal de Reproducción (Video o Audio) */}
       {playingComercial && (
-        <div className="fixed inset-0 bg-black bg-opacity-95 flex justify-center items-center z-50 p-6">
-          <div className="w-full max-w-6xl mx-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-95 flex justify-center items-center z-50 p-4">
+          <div className="w-full max-w-[640px] mx-auto">
             {/* Header minimalista */}
-            <div className="bg-white text-slate-900 px-4 py-2 flex justify-between items-center rounded-t-lg border-b border-slate-200 shadow-sm">
-              <h2 className="text-sm font-semibold truncate">
+            <div className="bg-white text-slate-900 px-3 py-1.5 flex justify-between items-center rounded-t-lg border-b border-slate-200 shadow-sm">
+              <h2 className="text-xs font-semibold truncate">
                 {playingComercial.pizarra?.producto || playingComercial.nombre_original || 'Reproduciendo'}
               </h2>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 {/* Safety toggles */}
                 <button
                   onClick={() => setShowSafeAction(v => !v)}
-                  className={`px-2 py-1 text-xs rounded-full border ${showSafeAction ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}`}
+                  className={`px-1.5 py-0.5 text-[10px] rounded-full border ${showSafeAction ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}`}
                   title="Toggle Action Safe (5%)"
                 >
-                  Safety Area
+                  Area
                 </button>
                 <button
                   onClick={() => setShowSafeTitle(v => !v)}
-                  className={`px-2 py-1 text-xs rounded-full border ${showSafeTitle ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}`}
+                  className={`px-1.5 py-0.5 text-[10px] rounded-full border ${showSafeTitle ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'}`}
                   title="Toggle Title Safe (10%)"
                 >
-                  Safety Titles
+                  Title
                 </button>
                 <button 
                   onClick={() => setPlayingComercial(null)} 
-                  className="text-slate-500 hover:text-slate-800 text-xl font-light ml-2 transition-colors"
+                  className="text-slate-500 hover:text-slate-800 text-lg font-light ml-1 transition-colors"
                   aria-label="Cerrar"
                 >
                   ×
@@ -694,13 +903,16 @@ function ComercialesManager() {
                 </div>
               ) : (
                 <>
-                  <div className="bg-black relative w-full" style={{ aspectRatio: '16/9', maxHeight: '70vh' }}>
+                  <div className="bg-black">
                     <VideoPlayer
-                      src={getMediaUrl(playingComercial.ruta_proxy)}
+                      // Usar endpoint de streaming con soporte Range para permitir seek confiable.
+                      // Fallback a la URL directa en /media si no hay id (edge muy raro).
+                      src={playingComercial?.id
+                        ? getStreamUrl(playingComercial.id)
+                        : getMediaUrl(playingComercial.ruta_proxy || playingComercial.ruta_h264)}
                       poster={playingComercial.thumbnail ? getMediaUrl(playingComercial.thumbnail) : undefined}
                       showSafeAction={showSafeAction}
                       showSafeTitle={showSafeTitle}
-                      className="w-full h-full"
                     />
                   </div>
                 </>
@@ -708,8 +920,8 @@ function ComercialesManager() {
             }
 
             {/* Info compacta y elegante - TODOS los campos siempre visibles */}
-            <div className="bg-white px-6 py-4 rounded-b-lg border-t border-slate-200 shadow-sm">
-              <div className="grid grid-cols-4 gap-x-6 gap-y-3 text-sm">
+            <div className="bg-white px-3 py-2 rounded-b-lg border-t border-slate-200 shadow-sm">
+              <div className="grid grid-cols-3 gap-x-3 gap-y-1.5 text-xs">
                 {/* Cliente */}
                 <div className="flex flex-col">
                   <span className="text-slate-500 uppercase text-[10px] font-semibold tracking-wider mb-1">Cliente</span>
@@ -1005,13 +1217,16 @@ function ComercialesManager() {
 
                 <div>
                   <label className="block text-sm font-semibold mb-2">{t('filters.format')}</label>
-                  <input
-                    type="text"
-                    placeholder={t('filters.formatPlaceholder')}
+                  <select
                     value={filters.formato}
                     onChange={(e) => setFilters({...filters, formato: e.target.value})}
                     className="w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  />
+                  >
+                    <option value="">SELECT FORMAT...</option>
+                    {formatOptions.map(fmt => (
+                      <option key={fmt} value={fmt}>{fmt}</option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>
@@ -1095,16 +1310,46 @@ function ComercialesManager() {
             </div>
             <div className="text-center">
               <div className="text-2xl font-bold text-white">{totalFiles}</div>
-              <p className="text-xs text-white font-medium">Commercials</p>
+              <p className="text-xs text-white font-medium">Total</p>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-bold text-white">{stanbyFiles}</div>
-              <p className="text-xs text-white font-medium">Pending</p>
+              <div className="text-2xl font-bold text-green-300">{stanbyFiles}</div>
+              <p className="text-xs text-white font-medium">Completed</p>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-bold text-white">{totalFiles - stanbyFiles}</div>
-              <p className="text-xs text-white font-medium">Processed</p>
+              <div className="text-2xl font-bold text-blue-300">{processingFiles}</div>
+              <p className="text-xs text-white font-medium">Processing</p>
             </div>
+            {pendingFiles > 0 && (
+              <div 
+                className="text-center cursor-pointer hover:opacity-80 transition-opacity"
+                onClick={() => setShowStatusModal('pending')}
+                title="Ver detalles"
+              >
+                <div className="text-2xl font-bold text-yellow-300">{pendingFiles}</div>
+                <p className="text-xs text-white font-medium">Pending</p>
+              </div>
+            )}
+            {errorFiles > 0 && (
+              <div 
+                className="text-center cursor-pointer hover:opacity-80 transition-opacity"
+                onClick={() => setShowStatusModal('error')}
+                title="Ver detalles"
+              >
+                <div className="text-2xl font-bold text-red-300">{errorFiles}</div>
+                <p className="text-xs text-white font-medium">Errors</p>
+              </div>
+            )}
+            {metadataOnlyFiles > 0 && (
+              <div 
+                className="text-center cursor-pointer hover:opacity-80 transition-opacity"
+                onClick={() => setShowStatusModal('metadata_only')}
+                title="Ver detalles"
+              >
+                <div className="text-2xl font-bold text-purple-300">{metadataOnlyFiles}</div>
+                <p className="text-xs text-white font-medium">Metadata Only</p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1349,7 +1594,7 @@ function ComercialesManager() {
                             {/* Directory name */}
                             <div>
                               <span className="text-base font-semibold text-gray-900">{item.data.nombre}</span>
-                              <span className="ml-2 text-sm text-gray-500">({item.data.broadcasts_count || 0} commercials)</span>
+                              <span className="ml-2 text-sm text-gray-500">({item.data.broadcasts_count || 0})</span>
                             </div>
                           </div>
                         </td>
@@ -1455,7 +1700,7 @@ function ComercialesManager() {
                         <td className="px-4 py-3">
                           <div className="flex items-center space-x-2">
                             <span className="text-sm font-medium text-gray-900">
-                              {item.data.nombre_original || item.data.pizarra?.producto || 'N/A'}
+                              {getBasename(item.data.nombre_original) || item.data.pizarra?.producto || 'N/A'}
                             </span>
                           </div>
                         </td>
@@ -1672,7 +1917,7 @@ function ComercialesManager() {
                                     <svg className="w-7 h-7 text-blue-500" fill="currentColor" viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
                                     <div>
                                       <div className="text-base font-semibold text-gray-900">{item.data.nombre}</div>
-                                      <div className="text-xs text-gray-500">{item.data.broadcasts_count || 0} images</div>
+                                      <div className="text-xs text-gray-500">({item.data.broadcasts_count || 0})</div>
                                     </div>
                                   </div>
                                   <div className="flex items-center space-x-2">
@@ -1702,7 +1947,7 @@ function ComercialesManager() {
                               </td>
                               {/* Original Name */}
                               <td className="px-4 py-3">
-                                <div className="font-medium text-gray-900 truncate">{item.data.nombre_original || 'Unnamed'}</div>
+                                <div className="font-medium text-gray-900 truncate">{getBasename(item.data.nombre_original) || 'Unnamed'}</div>
                               </td>
                               {/* File Size */}
                               <td className="px-4 py-3 text-sm text-gray-600">
@@ -1807,7 +2052,7 @@ function ComercialesManager() {
                                     <svg className="w-7 h-7 text-blue-500" fill="currentColor" viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
                                     <div>
                                       <div className="text-base font-semibold text-gray-900">{item.data.nombre}</div>
-                                      <div className="text-xs text-gray-500">{item.data.broadcasts_count || 0} files</div>
+                                      <div className="text-xs text-gray-500">({item.data.broadcasts_count || 0})</div>
                                     </div>
                                   </div>
                                   <div className="flex items-center space-x-2">
@@ -1834,7 +2079,7 @@ function ComercialesManager() {
                               {/* File Name */}
                               <td className="px-4 py-3">
                                 <div className="font-medium text-gray-900 truncate" title={item.data.nombre_original}>
-                                  {item.data.nombre_original || 'Unnamed File'}
+                                  {getBasename(item.data.nombre_original) || 'Unnamed File'}
                                 </div>
                               </td>
                               {/* File Size */}
@@ -1912,7 +2157,7 @@ function ComercialesManager() {
                             <svg className="w-7 h-7 text-blue-500" fill="currentColor" viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
                             <div>
                               <div className="text-base font-semibold text-gray-900">{item.data.nombre}</div>
-                              <div className="text-xs text-gray-500">{item.data.broadcasts_count || 0} commercials</div>
+                              <div className="text-xs text-gray-500">({item.data.broadcasts_count || 0})</div>
                             </div>
                           </div>
                           <div className="flex items-center space-x-2">
@@ -2069,7 +2314,7 @@ function ComercialesManager() {
                                   {/* Nombre del directorio */}
                                   <div>
                                     <span className="text-base font-semibold text-gray-900">{item.data.nombre}</span>
-                                    <span className="ml-2 text-sm text-gray-500">({item.data.broadcasts_count || 0} commercials)</span>
+                                    <span className="ml-2 text-sm text-gray-500">({item.data.broadcasts_count || 0})</span>
                                   </div>
                                 </div>
                               </td>
@@ -2143,19 +2388,19 @@ function ComercialesManager() {
                                 )}
                               </div>
                             </td>
-                              <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                              <td className="px-4 py-3 text-sm font-medium text-gray-900 uppercase">
                                 {item.data.pizarra?.cliente || '-'}
                               </td>
-                              <td className="px-4 py-3 text-sm text-gray-700">
+                              <td className="px-4 py-3 text-sm text-gray-700 uppercase">
                                 {item.data.pizarra?.agencia || '-'}
                               </td>
-                              <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                              <td className="px-4 py-3 text-sm font-medium text-gray-900 uppercase">
                                 {item.data.pizarra?.producto || 'N/A'}
                               </td>
-                              <td className="px-4 py-3 text-sm text-gray-700">
+                              <td className="px-4 py-3 text-sm text-gray-700 uppercase">
                                 {item.data.pizarra?.version || '-'}
                               </td>
-                              <td className="px-4 py-3 text-sm text-gray-700">
+                              <td className="px-4 py-3 text-sm text-gray-700 uppercase">
                                 {item.data.pizarra?.duracion || '-'}
                               </td>
                               {/* Type (from CSV vtype mapping). Status is not shown in Full view */}
@@ -2338,7 +2583,7 @@ function ComercialesManager() {
                                 </svg>
                                 <div className="text-center">
                                   <div className="font-semibold text-gray-900 text-sm truncate w-full">{item.data.nombre}</div>
-                                  <div className="text-xs text-gray-500 mt-1">{item.data.broadcasts_count || 0} images</div>
+                                  <div className="text-xs text-gray-500 mt-1">({item.data.broadcasts_count || 0})</div>
                                 </div>
                               </div>
                             </div>
@@ -2622,7 +2867,11 @@ function ComercialesManager() {
                               onMouseEnter={(e) => e.target.play()}
                               onMouseLeave={(e) => { e.target.pause(); e.target.currentTime = 0; }}
                             >
-                              <source src={getMediaUrl(comercial.ruta_proxy)} type="video/mp4" />
+                              <source
+                                // Usar streaming endpoint si tenemos id (seek mejorado); fallback a media directa.
+                                src={comercial.id ? getStreamUrl(comercial.id) : getMediaUrl(comercial.ruta_proxy || comercial.ruta_h264)}
+                                type="video/mp4"
+                              />
                             </video>
                           );
                         }
@@ -2656,13 +2905,13 @@ function ComercialesManager() {
 
                     {/* Info */}
                     <div className="p-3">
-                      <h3 className="font-semibold text-sm text-gray-900 truncate mb-1">
+                      <h3 className="font-semibold text-sm text-gray-900 truncate mb-1 uppercase">
                         {comercial.pizarra?.producto || 'Untitled'}
                       </h3>
-                      <p className="text-xs text-gray-600 truncate mb-1">
+                      <p className="text-xs text-gray-600 truncate mb-1 uppercase">
                         {comercial.pizarra?.cliente || '-'}
                       </p>
-                      <p className="text-xs text-gray-500 truncate mb-2">
+                      <p className="text-xs text-gray-500 truncate mb-2 uppercase">
                         {comercial.pizarra?.agencia || '-'}
                       </p>
                       

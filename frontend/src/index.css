@@ -35,7 +35,7 @@
   inset: 0;
   border: 3px solid rgba(255, 255, 255, 0.95);
   pointer-events: none;
-  z-index: 100; /* por encima del video y controles */
+  z-index: 1; /* por encima del video pero DEBAJO de controles Video.js (z-index: 2+) */
   /* sombra sutil para contraste en escenas claras */
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35) inset;
 }

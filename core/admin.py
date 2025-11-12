@@ -1,7 +1,7 @@
 # core/admin.py
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from .models import CustomUser, Repositorio, Agencia, Broadcast, Audio, SharedLink, RepositorioPermiso, Modulo, Perfil, ImageAsset, StorageAsset, ProcessingError
+from .models import CustomUser, Repositorio, Agencia, Broadcast, Audio, SharedLink, RepositorioPermiso, Modulo, Perfil, ImageAsset, StorageAsset, ProcessingError, EncodingPreset
 
 @admin.register(Perfil)
 class PerfilAdmin(admin.ModelAdmin):
@@ -110,3 +110,28 @@ class ProcessingErrorAdmin(admin.ModelAdmin):
     list_filter = ('stage', 'repositorio', 'modulo', 'resolved', 'fecha_creacion')
     search_fields = ('file_name', 'error_message')
     readonly_fields = ('fecha_creacion',)
+
+
+@admin.register(EncodingPreset)
+class EncodingPresetAdmin(admin.ModelAdmin):
+    list_display = ('nombre', 'categoria', 'creado_por', 'es_global', 'activo', 'veces_usado', 'fecha_creacion')
+    list_filter = ('categoria', 'es_global', 'activo', 'fecha_creacion')
+    search_fields = ('nombre', 'descripcion')
+    readonly_fields = ('fecha_creacion', 'fecha_modificacion', 'veces_usado')
+    
+    fieldsets = (
+        ('Información Básica', {
+            'fields': ('nombre', 'descripcion', 'categoria')
+        }),
+        ('Configuración FFmpeg', {
+            'fields': ('settings',),
+            'description': 'JSON con la configuración de FFmpeg (formato, codec, bitrate, etc.)'
+        }),
+        ('Control de Acceso', {
+            'fields': ('creado_por', 'es_global', 'activo')
+        }),
+        ('Estadísticas', {
+            'fields': ('veces_usado', 'fecha_creacion', 'fecha_modificacion'),
+            'classes': ('collapse',)
+        }),
+    )

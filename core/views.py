@@ -9,13 +9,16 @@ from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
-from .models import Repositorio, Agencia, Broadcast, Audio, CustomUser, SharedLink, Directorio, RepositorioPermiso, Modulo, Perfil, SistemaInformacion, ImageAsset, StorageAsset, ProcessingError
+from .models import Repositorio, Agencia, Broadcast, Audio, CustomUser, SharedLink, Directorio, RepositorioPermiso, Modulo, Perfil, SistemaInformacion, ImageAsset, StorageAsset, ProcessingError, EncodingPreset
 from .serializers import (
     RepositorioSerializer, AgenciaSerializer, BroadcastSerializer, AudioSerializer,
     UserSerializer, SharedLinkSerializer, SharedLinkPublicSerializer, DirectorioSerializer,
-    RepositorioPermisoSerializer, ModuloSerializer, PerfilSerializer, SistemaInformacionSerializer, ImageAssetSerializer, StorageAssetSerializer, ProcessingErrorSerializer
+    RepositorioPermisoSerializer, ModuloSerializer, PerfilSerializer, SistemaInformacionSerializer, ImageAssetSerializer, StorageAssetSerializer, ProcessingErrorSerializer, EncodingPresetSerializer
 )
 from .tasks import transcode_video, process_audio, process_image
+from django.http import StreamingHttpResponse, HttpResponse, FileResponse
+from pathlib import Path
+import mimetypes
 
 logger = logging.getLogger(__name__)
 @api_view(['GET'])
@@ -46,6 +49,71 @@ def ffmpeg_health(request):
         'media_root_writable': writable,
         'subdirs': created
     })
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def stream_broadcast_media(request, pk):
+    """Entrega el proxy MP4 (o H.264) con soporte de Range (206) para permitir seek.
+
+    URL: /api/broadcasts/<uuid>/stream/
+    """
+    broadcast = get_object_or_404(Broadcast, pk=pk)
+    rel_path = broadcast.ruta_proxy or broadcast.ruta_h264 or ''
+    if not rel_path:
+        return Response({'error': 'No hay proxy disponible'}, status=404)
+
+    file_path = Path(settings.MEDIA_ROOT) / rel_path
+    if not file_path.exists():
+        return Response({'error': 'Archivo no encontrado'}, status=404)
+
+    file_size = file_path.stat().st_size
+    content_type, _ = mimetypes.guess_type(str(file_path))
+    content_type = content_type or 'video/mp4'
+
+    range_header = request.headers.get('Range') or request.META.get('HTTP_RANGE')
+    if range_header:
+        try:
+            units, ranges = range_header.strip().split('=')
+            if units != 'bytes':
+                raise ValueError('Invalid units')
+            start_str, end_str = ranges.split('-')
+            start = int(start_str) if start_str else 0
+            end = int(end_str) if end_str else file_size - 1
+            end = min(end, file_size - 1)
+            if start > end or start < 0:
+                raise ValueError('Invalid range')
+        except Exception:
+            # Responder con 416 rango no satisfacible
+            resp = HttpResponse(status=416)
+            resp['Content-Range'] = f'bytes */{file_size}'
+            return resp
+
+        chunk_size = 8192 * 16
+        def range_stream(path, start_pos, end_pos):
+            with open(path, 'rb') as f:
+                f.seek(start_pos)
+                remaining = end_pos - start_pos + 1
+                while remaining > 0:
+                    read_len = min(chunk_size, remaining)
+                    data = f.read(read_len)
+                    if not data:
+                        break
+                    remaining -= len(data)
+                    yield data
+
+        resp = StreamingHttpResponse(range_stream(str(file_path), start, end), status=206, content_type=content_type)
+        resp['Content-Length'] = str(end - start + 1)
+        resp['Content-Range'] = f'bytes {start}-{end}/{file_size}'
+        resp['Accept-Ranges'] = 'bytes'
+        resp['Cache-Control'] = 'no-store'
+        return resp
+
+    # Sin Range → respuesta completa (200) con Accept-Ranges para permitir solicitudes parciales posteriores
+    resp = FileResponse(open(file_path, 'rb'), content_type=content_type)
+    resp['Content-Length'] = str(file_size)
+    resp['Accept-Ranges'] = 'bytes'
+    resp['Cache-Control'] = 'no-store'
+    return resp
 @api_view(['POST', 'OPTIONS'])
 @permission_classes([IsAdminUser])
 def purge_all(request):
@@ -525,8 +593,12 @@ class BroadcastViewSet(viewsets.ModelViewSet):
     serializer_class = BroadcastSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_fields = ['repositorio', 'estado_transcodificacion', 'modulo', 'directorio']
-    # Permitir búsqueda por nombre de archivo también (requerido para módulos tipo "reel")
-    search_fields = ['pizarra__producto', 'pizarra__version', 'nombre_original']
+    # Búsqueda ampliada: incluir más campos de la pizarra y nombre de archivo
+    # El SearchFilter se mantiene para compatibilidad pero sobreescribimos filter_queryset
+    search_fields = [
+        'pizarra__producto', 'pizarra__version', 'pizarra__cliente', 'pizarra__agencia',
+        'pizarra__duracion', 'nombre_original', 'id_content'
+    ]
 
     # ------------------------------------------------------------
     # Helpers para encolar/transcodificar de forma robusta
@@ -596,6 +668,44 @@ class BroadcastViewSet(viewsets.ModelViewSet):
         return Broadcast.objects.filter(
             repositorio_id__in=repositorios_ids
         ).order_by('-fecha_subida')
+
+    def filter_queryset(self, queryset):
+        """Extiende la búsqueda para cubrir todos los campos solicitados:
+        cliente, agencia, producto, version, duracion (time), formato (extension), date, file name.
+        La lógica añade coincidencias OR sobre múltiples campos, incluyendo heurísticas para fecha y extensión.
+        """
+        queryset = super().filter_queryset(queryset)
+        term = self.request.query_params.get('search', '').strip()
+        if not term:
+            return queryset
+        from django.db.models import Q
+        import re
+        q = Q(
+            pizarra__producto__icontains=term
+        ) | Q(
+            pizarra__version__icontains=term
+        ) | Q(
+            pizarra__cliente__icontains=term
+        ) | Q(
+            pizarra__agencia__icontains=term
+        ) | Q(
+            pizarra__duracion__icontains=term
+        ) | Q(
+            nombre_original__icontains=term
+        ) | Q(
+            id_content__icontains=term
+        )
+        # Detectar patrón de fecha YYYY-MM-DD
+        if re.match(r'^\d{4}-\d{2}-\d{2}$', term):
+            q = q | Q(fecha_subida__date=term)
+        # Si tiene formato HH:MM o HH:MM:SS agregar a duracion
+        if re.match(r'^\d{1,2}:\d{2}(:\d{2})?$', term):
+            q = q | Q(pizarra__duracion__icontains=term)
+        # Extensión / formato ("mp4" / ".mp4")
+        ext = term.lower().lstrip('.')
+        if len(ext) <= 6 and re.match(r'^[a-z0-9]{2,6}$', ext):
+            q = q | Q(nombre_original__iendswith='.' + ext)
+        return queryset.filter(q).distinct()
 
     def create(self, request, *args, **kwargs):
         """
@@ -762,6 +872,62 @@ class BroadcastViewSet(viewsets.ModelViewSet):
             'broadcast_ids': [str(b.id) for b in pending_broadcasts]
         })
 
+    @action(detail=False, methods=['post'], url_path='encode', permission_classes=[IsAuthenticated])
+    def encode_custom(self, request):
+        """
+        Endpoint para codificación personalizada de videos.
+        Recibe la configuración de encoding y dispara una tarea Celery.
+        
+        POST /api/broadcasts/encode/
+        Body: {
+            broadcast_id: uuid,
+            settings: {...},
+            preset_id: string
+        }
+        """
+        broadcast_id = request.data.get('broadcast_id')
+        settings_data = request.data.get('settings', {})
+        preset_id = request.data.get('preset_id', 'custom')
+        
+        if not broadcast_id:
+            return Response(
+                {'error': 'broadcast_id es requerido'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            broadcast = Broadcast.objects.get(id=broadcast_id)
+        except Broadcast.DoesNotExist:
+            return Response(
+                {'error': 'Broadcast no encontrado'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Validar que el archivo original exista
+        if not broadcast.archivo_original:
+            return Response(
+                {'error': 'El broadcast no tiene archivo original'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Importar la tarea de encoding personalizado
+        from .tasks import encode_custom_video
+        
+        # Disparar la tarea Celery con los settings
+        encode_custom_video.delay(
+            broadcast_id=str(broadcast_id),
+            encoding_settings=settings_data,
+            preset_id=preset_id
+        )
+        
+        logger.info(f"🎬 Codificación personalizada iniciada para broadcast {broadcast_id} con preset {preset_id}")
+        
+        return Response({
+            'message': 'Codificación iniciada',
+            'broadcast_id': str(broadcast_id),
+            'preset': preset_id
+        }, status=status.HTTP_202_ACCEPTED)
+
     def destroy(self, request, *args, **kwargs):
         """
         Override destroy method to delete all physical files
@@ -797,6 +963,87 @@ class ProcessingErrorViewSet(viewsets.ReadOnlyModelViewSet):
             puede_ver=True
         ).values_list('repositorio_id', flat=True)
         return qs.filter(repositorio_id__in=repositorios_ids).order_by('-fecha_creacion')
+
+
+class EncodingPresetViewSet(viewsets.ModelViewSet):
+    """ViewSet para gestionar presets de codificación personalizados"""
+    serializer_class = EncodingPresetSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['categoria', 'es_global', 'activo', 'creado_por']
+    search_fields = ['nombre', 'descripcion']
+    ordering_fields = ['fecha_creacion', 'fecha_modificacion', 'veces_usado', 'nombre']
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        """
+        Usuarios regulares ven:
+        - Presets globales activos
+        - Sus propios presets (activos e inactivos)
+        
+        Administradores ven todos los presets
+        """
+        user = self.request.user
+        qs = EncodingPreset.objects.all()
+        
+        # Admins ven todo
+        if user.is_superuser or user.is_staff:
+            return qs.order_by('-fecha_creacion')
+        
+        # Usuarios regulares: globales activos + propios
+        from django.db.models import Q
+        return qs.filter(
+            Q(es_global=True, activo=True) | Q(creado_por=user)
+        ).order_by('-fecha_creacion')
+
+    def get_permissions(self):
+        """
+        - list/retrieve: Authenticated
+        - create/update/delete: Admin only
+        """
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [IsAdminUser()]
+        return [IsAuthenticated()]
+
+    def perform_create(self, serializer):
+        """Asignar el usuario actual como creador"""
+        serializer.save(creado_por=self.request.user)
+        logger.info(f"✅ Preset creado: {serializer.instance.nombre} por {self.request.user.email}")
+
+    def perform_update(self, serializer):
+        """Log de actualizaciones"""
+        serializer.save()
+        logger.info(f"📝 Preset actualizado: {serializer.instance.nombre} por {self.request.user.email}")
+
+    def perform_destroy(self, instance):
+        """Desactivar en lugar de eliminar físicamente (soft delete)"""
+        instance.activo = False
+        instance.save(update_fields=['activo'])
+        logger.info(f"🗑️ Preset desactivado: {instance.nombre} por {self.request.user.email}")
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def increment_usage(self, request, pk=None):
+        """Incrementar contador de uso del preset"""
+        preset = self.get_object()
+        preset.incrementar_uso()
+        return Response({
+            'status': 'success',
+            'veces_usado': preset.veces_usado,
+            'mensaje': f'Uso registrado para {preset.nombre}'
+        })
+
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    def by_category(self, request):
+        """Listar presets agrupados por categoría"""
+        queryset = self.filter_queryset(self.get_queryset())
+        
+        categorias = {}
+        for preset in queryset:
+            cat = preset.get_categoria_display()
+            if cat not in categorias:
+                categorias[cat] = []
+            categorias[cat].append(self.get_serializer(preset).data)
+        
+        return Response(categorias)
 
 
 class StorageAssetViewSet(viewsets.ModelViewSet):
@@ -945,163 +1192,6 @@ class StorageAssetViewSet(viewsets.ModelViewSet):
 
         return Response({'message': f'Purga completada: {total} broadcasts eliminados, {files_deleted} archivos eliminados.'})
     
-    @action(detail=False, methods=['post'], url_path='encode', permission_classes=[IsAuthenticated])
-    def encode_custom(self, request):
-        """
-        Endpoint para codificación personalizada de videos.
-        Recibe la configuración de encoding y dispara una tarea Celery.
-        
-        POST /api/broadcasts/encode/
-        Body: {
-            broadcast_id: uuid,
-            settings: {...},
-            preset_id: string
-        }
-        """
-        broadcast_id = request.data.get('broadcast_id')
-        settings_data = request.data.get('settings', {})
-        preset_id = request.data.get('preset_id', 'custom')
-        
-        if not broadcast_id:
-            return Response(
-                {'error': 'broadcast_id es requerido'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        try:
-            broadcast = Broadcast.objects.get(id=broadcast_id)
-        except Broadcast.DoesNotExist:
-            return Response(
-                {'error': 'Broadcast no encontrado'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        # Validar que el archivo original exista
-        if not broadcast.archivo_original:
-            return Response(
-                {'error': 'El broadcast no tiene archivo original'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Importar la tarea de encoding personalizado
-        from .tasks import encode_custom_video
-        
-        # Disparar la tarea Celery con los settings
-        encode_custom_video.delay(
-            broadcast_id=str(broadcast_id),
-            encoding_settings=settings_data,
-            preset_id=preset_id
-        )
-        
-        logger.info(f"🎬 Codificación personalizada iniciada para broadcast {broadcast_id} con preset {preset_id}")
-        
-        return Response({
-            'message': 'Codificación iniciada',
-            'broadcast_id': str(broadcast_id),
-            'preset': preset_id
-        }, status=status.HTTP_202_ACCEPTED)
-    
-    @action(detail=True, methods=['post'], url_path='reprocess')
-    def reprocess(self, request, pk=None):
-        """Dispara nuevamente el procesamiento (transcodificación) del broadcast."""
-        try:
-            broadcast = self.get_object()
-            
-            if not broadcast.archivo_original:
-                return Response(
-                    {'error': 'El broadcast no tiene archivo original'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            broadcast.estado_transcodificacion = 'PROCESANDO'
-            broadcast.last_error = None
-            broadcast.save(update_fields=['estado_transcodificacion', 'last_error'])
-            
-            # Disparar tarea Celery
-            transcode_video.delay(str(broadcast.id))
-            
-            logger.info(f"🔄 Reprocessing started for broadcast {broadcast.id}")
-            return Response({'status': 'queued', 'broadcast_id': str(broadcast.id)})
-        except Exception as e:
-            logger.error(f"❌ Error reprocessing broadcast: {e}")
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-    
-    @action(detail=False, methods=['post'], url_path='cancel_stuck_processes')
-    def cancel_stuck_processes(self, request):
-        """
-    Cancela todos los procesos de encoding atascados.
-    Marca como ERROR todos los broadcasts que están en PROCESANDO.
-        """
-        from datetime import timedelta
-        
-        # Obtener broadcasts en PROCESANDO que llevan más de 1 hora
-        time_threshold = timezone.now() - timedelta(hours=1)
-        stuck_broadcasts = Broadcast.objects.filter(
-            estado_transcodificacion='PROCESANDO',
-            fecha_subida__lt=time_threshold
-        )
-        
-        count = stuck_broadcasts.count()
-        
-        if count == 0:
-            return Response({
-                'message': 'No stuck processes found',
-                'updated_count': 0
-            })
-        
-        # Actualizar a ERROR y dejar evidencia
-        stuck_broadcasts.update(estado_transcodificacion='ERROR', last_error='Cancelled (stuck) by admin')
-        
-        logger.info(f"🛑 {count} broadcasts stuck in PROCESANDO marked as ERROR (cancelled)")
-        
-        return Response({
-            'message': f'{count} stuck processes cancelled',
-            'updated_count': count
-        })
-    
-    @action(detail=False, methods=['post'], url_path='cancel_all_processing')
-    def cancel_all_processing(self, request):
-        """
-        Cancela TODOS los procesos en PROCESANDO sin importar el tiempo.
-        Útil para cancelar manualmente procesos que se quedaron atascados.
-        """
-        # Obtener TODOS los broadcasts en PROCESANDO
-        processing_broadcasts = Broadcast.objects.filter(
-            estado_transcodificacion='PROCESANDO'
-        )
-        
-        count = processing_broadcasts.count()
-        
-        if count == 0:
-            return Response({
-                'message': 'No processing broadcasts found',
-                'updated_count': 0
-            })
-        
-        # Actualizar a ERROR y dejar evidencia
-        processing_broadcasts.update(estado_transcodificacion='ERROR', last_error='Cancelled by admin')
-        
-        logger.info(f"🛑 {count} broadcasts in PROCESANDO manually cancelled and marked as ERROR")
-
-        return Response({
-            'message': f'{count} processes cancelled',
-            'updated_count': count
-        })
-
-    @action(detail=True, methods=['post'], url_path='cancel')
-    def cancel_one(self, request, pk=None):
-        """Cancela un broadcast en proceso (marca como ERROR)."""
-        try:
-            b = self.get_object()
-            if b.estado_transcodificacion != 'PROCESANDO':
-                return Response({'message': 'Broadcast no está en PROCESANDO', 'estado': b.estado_transcodificacion})
-            b.estado_transcodificacion = 'ERROR'
-            b.last_error = 'Cancelled by user'
-            b.save(update_fields=['estado_transcodificacion', 'last_error'])
-            return Response({'message': 'Cancelado', 'id': str(b.id)})
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
     @action(detail=False, methods=['post'], url_path='retry_failed')
     def retry_failed(self, request):
         """

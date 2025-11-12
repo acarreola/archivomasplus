@@ -13,8 +13,8 @@ export default function VideoPlayer({ src, poster, onPlay, className = '', showS
       const player = videojs(videoElement, {
         controls: true,
         responsive: true,
-        fluid: false,
-        fill: true,
+        fluid: true,
+        aspectRatio: '16:9',
         preload: 'auto',
         playbackRates: [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2],
         controlBar: {
@@ -73,10 +73,10 @@ export default function VideoPlayer({ src, poster, onPlay, className = '', showS
   }, []);
 
   return (
-    <div className={`video-js-wrapper ${className}`} data-vjs-player>
+    <div className={`video-js-wrapper relative aspect-video ${className}`} data-vjs-player>
       <video
         ref={videoRef}
-        className="video-js vjs-big-play-centered"
+        className="video-js vjs-big-play-centered w-full h-full"
         playsInline
       />
       {/* Overlays de Safety - siempre visibles cuando showSafeAction/showSafeTitle son true */}

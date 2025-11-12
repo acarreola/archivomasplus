@@ -237,7 +237,45 @@ export default function RepositoriosManager() {
           'Content-Type': 'multipart/form-data'
         }
       });
-      alert(`CSV importado exitosamente!\n\nCreados: ${response.data.created}\nActualizados: ${response.data.updated}\nErrores: ${response.data.errors || 'Ninguno'}`);
+      
+      const data = response.data;
+      const summary = data.status_summary || {};
+      
+      let message = `✅ CSV importado exitosamente!\n\n`;
+      message += `📊 Resumen:\n`;
+      message += `  • Creados: ${data.created}\n`;
+      message += `  • Actualizados: ${data.updated}\n`;
+      message += `  • Total procesado: ${data.total_processed}\n\n`;
+      message += `📈 Estados:\n`;
+      message += `  • Completados: ${summary.completado || 0}\n`;
+      message += `  • Procesando: ${summary.procesando || 0}\n`;
+      message += `  • Pendientes: ${summary.pendiente || 0}\n`;
+      message += `  • Errores: ${summary.error || 0}\n`;
+      message += `  • Solo Metadata: ${summary.metadata_only || 0}\n`;
+      
+      if (data.warnings && data.warnings.length > 0) {
+        message += `\n⚠️ Avisos (${data.warnings.length}):\n`;
+        const maxWarnings = 5;
+        data.warnings.slice(0, maxWarnings).forEach(w => {
+          message += `  • ${w}\n`;
+        });
+        if (data.warnings.length > maxWarnings) {
+          message += `  ... y ${data.warnings.length - maxWarnings} más\n`;
+        }
+      }
+      
+      if (data.errors && data.errors.length > 0) {
+        message += `\n❌ Errores (${data.errors.length}):\n`;
+        const maxErrors = 3;
+        data.errors.slice(0, maxErrors).forEach(e => {
+          message += `  • ${e}\n`;
+        });
+        if (data.errors.length > maxErrors) {
+          message += `  ... y ${data.errors.length - maxErrors} más\n`;
+        }
+      }
+      
+      alert(message);
       // Opcional: recargar la lista de broadcasts si es necesario
     } catch (err) {
       console.error('Error importing CSV:', err);

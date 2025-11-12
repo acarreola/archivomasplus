@@ -453,9 +453,66 @@ class ProcessingError(models.Model):
         if not self.error_message:
             return ''
         return (self.error_message[:120] + '…') if len(self.error_message) > 120 else self.error_message
+
+
+class EncodingPreset(models.Model):
+    """Presets personalizados de codificación FFmpeg guardados por el usuario.
     
-    def save(self, *args, **kwargs):
-        """Si se marca como current, desmarcar las demás"""
-        if self.is_current:
-            SistemaInformacion.objects.filter(is_current=True).update(is_current=False)
-        super().save(*args, **kwargs)
+    Permite a los administradores crear y guardar configuraciones de encoding
+    personalizadas para reutilizarlas en el Codificador Profesional.
+    """
+    
+    CATEGORIA_CHOICES = [
+        ('broadcast', 'Broadcast'),
+        ('web', 'Web'),
+        ('mobile', 'Mobile'),
+        ('social', 'Social Media'),
+        ('custom', 'Personalizado'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    nombre = models.CharField(max_length=200, help_text="Nombre descriptivo del preset")
+    descripcion = models.TextField(blank=True, help_text="Descripción del preset y casos de uso")
+    categoria = models.CharField(max_length=20, choices=CATEGORIA_CHOICES, default='custom')
+    
+    # Configuración FFmpeg en JSON
+    settings = models.JSONField(
+        help_text="Configuración completa del preset (formato, codec, resolución, etc.)"
+    )
+    
+    # Control de acceso
+    creado_por = models.ForeignKey(
+        'CustomUser',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='presets_creados'
+    )
+    es_global = models.BooleanField(
+        default=False,
+        help_text="Si es global, todos los usuarios pueden verlo. Si no, solo el creador."
+    )
+    activo = models.BooleanField(default=True, help_text="Si está activo y disponible para uso")
+    
+    # Metadata
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+    fecha_modificacion = models.DateTimeField(auto_now=True)
+    veces_usado = models.IntegerField(default=0, help_text="Contador de veces que se ha usado este preset")
+    
+    class Meta:
+        verbose_name = "Preset de Codificación"
+        verbose_name_plural = "Presets de Codificación"
+        ordering = ['-fecha_creacion']
+        indexes = [
+            models.Index(fields=['categoria', 'activo']),
+            models.Index(fields=['creado_por', 'activo']),
+        ]
+    
+    def __str__(self):
+        return f"{self.nombre} ({self.get_categoria_display()})"
+    
+    def incrementar_uso(self):
+        """Incrementa el contador de usos"""
+        self.veces_usado += 1
+        self.save(update_fields=['veces_usado'])
+

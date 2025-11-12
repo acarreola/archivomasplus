@@ -20,7 +20,7 @@
     "videojs-http-source-selector": "^1.1.6",
     "wavesurfer.js": "^7.11.0"
   },
-  "resolutions": {
+  "overrides": {
     "react": "18.3.1",
     "react-dom": "18.3.1"
   },

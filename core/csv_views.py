@@ -403,6 +403,16 @@ def import_broadcasts_csv(request):
         created_count = 0
         updated_count = 0
         errors = []
+        warnings = []  # Para registros sin archivo físico
+        
+        # Contadores por estado
+        status_counts = {
+            'PENDIENTE': 0,
+            'PROCESANDO': 0,
+            'COMPLETADO': 0,
+            'ERROR': 0,
+            'METADATA_ONLY': 0
+        }
         
         # Detect model optional fields for compatibility across branches
         def model_has_field(model, field_name: str) -> bool:
@@ -455,11 +465,11 @@ def import_broadcasts_csv(request):
                 # Accept aliases from English and Spanish headers
                 id_content = (row.get('id_content') or row.get('Folio') or '').strip()
                 file_name = (row.get('file_name') or row.get('Nombre de archivo') or row.get('original name') or '').strip()
-                id_dir = (row.get('id_dir') or row.get('parent_directory') or row.get('Parent') or row.get('key') or '').strip()
+                id_dir = (row.get('id_dir') or row.get('parent_directory') or row.get('Parent') or row.get('key') or row.get('parent') or '').strip()
                 status_csv = (row.get('status') or row.get('Status') or '').strip()
                 username_csv = (row.get('username') or row.get('Username') or row.get('register') or '').strip()
                 upload_date_csv = (row.get('upload_date') or row.get('Fecha de registro') or '').strip()
-                date_create_csv = (row.get('date_create') or row.get('Date-Create') or row.get('fecha') or row.get('Expedition') or '').strip()
+                date_create_csv = (row.get('date_create') or row.get('Date-Create') or row.get('fecha') or row.get('Expedition') or row.get('date') or '').strip()
 
                 # Required fields validation
                 if not id_content:
@@ -535,6 +545,15 @@ def import_broadcasts_csv(request):
                     continue
                 
                 # Create or update broadcast depending on model capabilities
+                # Determinar estado inicial basado en CSV o defaultear a PENDIENTE
+                smap = {
+                    'Pending': 'PENDIENTE',
+                    'Processing': 'PROCESANDO',
+                    'Completed': 'COMPLETADO',
+                    'Error': 'ERROR'
+                }
+                estado_inicial = smap.get(status_csv, 'PENDIENTE') if status_csv else 'PENDIENTE'
+                
                 if supports_id_content and id_content:
                     broadcast, created = Broadcast.objects.update_or_create(
                         id_content=id_content,
@@ -544,7 +563,7 @@ def import_broadcasts_csv(request):
                             'modulo': modulo,
                             'nombre_original': file_name,
                             'pizarra': pizarra,
-                            'estado_transcodificacion': 'METADATA_ONLY',  # Solo metadata, no procesar
+                            'estado_transcodificacion': estado_inicial,
                         }
                     )
                 else:
@@ -555,22 +574,16 @@ def import_broadcasts_csv(request):
                         modulo=modulo,
                         nombre_original=file_name,
                         pizarra=pizarra,
-                        estado_transcodificacion='METADATA_ONLY',
+                        estado_transcodificacion= estado_inicial,
                     )
                     created = True
 
-                # Optional: set estado from Status
-                if status_csv:
-                    smap = {
-                        'Pending': 'PENDIENTE',
-                        'Processing': 'PROCESANDO',
-                        'Completed': 'COMPLETADO',
-                        'Error': 'ERROR'
-                    }
-                    estado_val = smap.get(status_csv, None)
-                    if estado_val:
-                        broadcast.estado_transcodificacion = estado_val
-                        broadcast.save(update_fields=['estado_transcodificacion'])
+                # Track status counts
+                status_counts[broadcast.estado_transcodificacion] = status_counts.get(broadcast.estado_transcodificacion, 0) + 1
+                
+                # Si no tiene archivo físico, agregar a warnings
+                if not broadcast.archivo_original:
+                    warnings.append(f"{id_content or 'Row ' + str(row_num)}: '{file_name}' - No physical file (metadata only)")
 
                 # Optional: set creado_por from Username
                 if username_csv:
@@ -589,12 +602,20 @@ def import_broadcasts_csv(request):
             except Exception as e:
                 errors.append(f"Row {row_num}: {str(e)}")
         
-        # Build response
+        # Build detailed response
         response_data = {
             'success': True,
             'created': created_count,
             'updated': updated_count,
             'total_processed': created_count + updated_count,
+            'status_summary': {
+                'pendiente': status_counts.get('PENDIENTE', 0),
+                'procesando': status_counts.get('PROCESANDO', 0),
+                'completado': status_counts.get('COMPLETADO', 0),
+                'error': status_counts.get('ERROR', 0),
+                'metadata_only': status_counts.get('METADATA_ONLY', 0),
+            },
+            'warnings': warnings if warnings else None,
             'errors': errors if errors else None
         }
         

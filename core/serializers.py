@@ -2,7 +2,7 @@ import json
 import os
 from django.contrib.auth.hashers import make_password
 from rest_framework import serializers
-from .models import Repositorio, Agencia, Broadcast, Audio, CustomUser, SharedLink, Directorio, RepositorioPermiso, Modulo, Perfil, SistemaInformacion, ImageAsset, StorageAsset, ProcessingError
+from .models import Repositorio, Agencia, Broadcast, Audio, CustomUser, SharedLink, Directorio, RepositorioPermiso, Modulo, Perfil, SistemaInformacion, ImageAsset, StorageAsset, ProcessingError, EncodingPreset
 
 class PerfilSerializer(serializers.ModelSerializer):
     class Meta:
@@ -137,12 +137,13 @@ class DirectorioSerializer(serializers.ModelSerializer):
     
     def get_broadcasts_count(self, obj):
         """
-        Return total broadcasts contained in this directory including all nested subdirectories.
+        Return total content contained in this directory including all nested subdirectories.
+        Counts broadcasts for broadcast modules, audios for audio modules, or images/storage for those types.
         Falls back to direct count if no children.
         """
         # Collect all descendant directory IDs (BFS traversal)
         try:
-            from .models import Directorio, Broadcast
+            from .models import Directorio, Broadcast, Audio, ImageAsset, StorageAsset
             ids = [obj.id]
             queue = [obj.id]
             while queue:
@@ -152,10 +153,23 @@ class DirectorioSerializer(serializers.ModelSerializer):
                 queue = children
                 ids.extend(children)
 
-            # Count all broadcasts that belong to any of these directories
-            return Broadcast.objects.filter(directorio_id__in=ids).count()
+            # Count based on module type
+            if obj.modulo and obj.modulo.tipo == 'audio':
+                # Count audios for audio modules
+                return Audio.objects.filter(directorio_id__in=ids).count()
+            elif obj.modulo and obj.modulo.tipo == 'images':
+                # Count images for image modules
+                return ImageAsset.objects.filter(directorio_id__in=ids).count()
+            elif obj.modulo and obj.modulo.tipo == 'storage':
+                # Count storage files for storage modules
+                return StorageAsset.objects.filter(directorio_id__in=ids).count()
+            else:
+                # Default to broadcasts (reel/broadcast modules)
+                return Broadcast.objects.filter(directorio_id__in=ids).count()
         except Exception:
             # Safe fallback to direct related count
+            if hasattr(obj, 'audios'):
+                return obj.audios.count()
             return obj.broadcasts.count()
 
 class AgenciaSerializer(serializers.ModelSerializer):
@@ -271,6 +285,18 @@ class BroadcastSerializer(serializers.ModelSerializer):
         return None
 
     def create(self, validated_data):
+        # Verificar duplicados por nombre de archivo
+        archivo = validated_data.get('archivo_original')
+        if archivo and hasattr(archivo, 'name'):
+            nombre_archivo = archivo.name
+            # Buscar si ya existe un broadcast con este nombre (sin importar repositorio/directorio)
+            existing = Broadcast.objects.filter(nombre_original=nombre_archivo).first()
+            if existing:
+                raise serializers.ValidationError({
+                    'archivo_original': f'Ya existe un archivo con el nombre "{nombre_archivo}" en el repositorio {existing.repositorio.nombre}. No se permiten duplicados.'
+                })
+            validated_data['nombre_original'] = nombre_archivo
+        
         # Parseamos el string JSON de la pizarra a un diccionario de Python
         pizarra_str = validated_data.pop('pizarra', '{}')
         try:
@@ -284,11 +310,6 @@ class BroadcastSerializer(serializers.ModelSerializer):
         
         # Asignamos el diccionario al campo JSONField del modelo
         validated_data['pizarra'] = pizarra_data
-        
-        # Save original filename
-        archivo = validated_data.get('archivo_original')
-        if archivo and hasattr(archivo, 'name'):
-            validated_data['nombre_original'] = archivo.name
         
         broadcast = Broadcast.objects.create(**validated_data)
         return broadcast
@@ -420,6 +441,18 @@ class AudioSerializer(serializers.ModelSerializer):
         return None
 
     def create(self, validated_data):
+        # Verificar duplicados por nombre de archivo
+        archivo = validated_data.get('archivo_original')
+        if archivo and hasattr(archivo, 'name'):
+            nombre_archivo = archivo.name
+            # Buscar si ya existe un audio con este nombre
+            existing = Audio.objects.filter(nombre_original=nombre_archivo).first()
+            if existing:
+                raise serializers.ValidationError({
+                    'archivo_original': f'Ya existe un archivo de audio con el nombre "{nombre_archivo}" en el repositorio {existing.repositorio.nombre}. No se permiten duplicados.'
+                })
+            validated_data['nombre_original'] = nombre_archivo
+        
         # Parseamos metadata si viene como string
         metadata_str = validated_data.pop('metadata', '{}')
         try:
@@ -431,11 +464,6 @@ class AudioSerializer(serializers.ModelSerializer):
             metadata_data = {}
         
         validated_data['metadata'] = metadata_data
-        
-        # Save original filename
-        archivo = validated_data.get('archivo_original')
-        if archivo and hasattr(archivo, 'name'):
-            validated_data['nombre_original'] = archivo.name
         
         audio = Audio.objects.create(**validated_data)
         return audio
@@ -682,7 +710,36 @@ class ImageAssetSerializer(serializers.ModelSerializer):
             # Archivo no existe en el storage, retornar 0
             pass
         return 0
-
+    
+    def validate(self, attrs):
+        """Prevenir duplicados por nombre de archivo en todo el sistema."""
+        archivo = attrs.get('archivo_original')
+        
+        if archivo and hasattr(archivo, 'name'):
+            nombre_archivo = archivo.name
+            
+            # Buscar si ya existe una imagen con este nombre en cualquier parte del sistema
+            from .models import ImageAsset
+            existing = ImageAsset.objects.filter(nombre_original=nombre_archivo).first()
+            
+            # Excluir el propio registro en caso de actualización
+            if getattr(self, 'instance', None) is not None:
+                existing = ImageAsset.objects.filter(
+                    nombre_original=nombre_archivo
+                ).exclude(pk=self.instance.pk).first()
+            
+            if existing:
+                raise serializers.ValidationError({
+                    'archivo_original': f'Ya existe una imagen con el nombre "{nombre_archivo}" en el repositorio {existing.repositorio.nombre}. No se permiten duplicados.'
+                })
+            
+            # Guardar nombre original y tipo de archivo
+            attrs['nombre_original'] = nombre_archivo
+            _, ext = os.path.splitext(nombre_archivo)
+            if ext:
+                attrs['tipo_archivo'] = ext.lower()
+        
+        return attrs
 
 class StorageAssetSerializer(serializers.ModelSerializer):
     repositorio_nombre = serializers.CharField(source='repositorio.nombre', read_only=True)
@@ -716,65 +773,36 @@ class StorageAssetSerializer(serializers.ModelSerializer):
         ]
     
     def validate(self, attrs):
-        """Prevent duplicates by name + extension within the same repo/modulo/directorio."""
-        # Resolve IDs for scope
-        repo = attrs.get('repositorio') or self.initial_data.get('repositorio')
-        repo_id = getattr(repo, 'id', None) or (int(repo) if str(repo).isdigit() else None)
-        modulo = attrs.get('modulo') or self.initial_data.get('modulo')
-        modulo_id = getattr(modulo, 'id', None) or (int(modulo) if (modulo is not None and str(modulo).isdigit()) else None)
-        directorio = attrs.get('directorio') or self.initial_data.get('directorio')
-        directorio_id = getattr(directorio, 'id', None) or (int(directorio) if (directorio not in [None, ''] and str(directorio).isdigit()) else None)
-
-        # Determine original name (base without extension) and extension
+        """Prevenir duplicados por nombre de archivo en todo el sistema."""
+        # Obtener archivo subido
         uploaded = attrs.get('archivo_original')
-        nombre_original = attrs.get('nombre_original') or self.initial_data.get('nombre_original')
-        ext = attrs.get('tipo_archivo') or self.initial_data.get('tipo_archivo')
-
+        
         if uploaded and hasattr(uploaded, 'name'):
-            fname = uploaded.name
-            base, file_ext = os.path.splitext(fname)
-            # Frontend usually sends nombre_original sin extensión; ensure we keep base
-            nombre_original = nombre_original or base
-            ext = file_ext or ext
-
-        # Normalize extension with leading dot and lowercase
-        if ext:
-            ext = ext if str(ext).startswith('.') else f'.{ext}'
-            ext = ext.lower()
-
-        # If we have scope and name+ext, check for existing
-        if repo_id and nombre_original and ext:
+            nombre_archivo = uploaded.name
+            
+            # Buscar si ya existe un archivo storage con este nombre en cualquier parte del sistema
             from .models import StorageAsset
-            qs = StorageAsset.objects.filter(
-                repositorio_id=repo_id,
-                nombre_original__iexact=str(nombre_original).strip(),
-                tipo_archivo__iexact=ext,
-            )
-            if modulo_id is not None:
-                qs = qs.filter(modulo_id=modulo_id)
-            else:
-                qs = qs.filter(modulo__isnull=True)
-            if directorio_id is not None:
-                qs = qs.filter(directorio_id=directorio_id)
-            else:
-                qs = qs.filter(directorio__isnull=True)
-
-            # Exclude self on updates
+            existing = StorageAsset.objects.filter(nombre_original=nombre_archivo).first()
+            
+            # Excluir el propio registro en caso de actualización
             if getattr(self, 'instance', None) is not None:
-                qs = qs.exclude(pk=self.instance.pk)
-
-            if qs.exists():
+                existing = StorageAsset.objects.filter(
+                    nombre_original=nombre_archivo
+                ).exclude(pk=self.instance.pk).first()
+            
+            if existing:
                 raise serializers.ValidationError({
-                    'non_field_errors': [
-                        f"Ya existe un archivo con el mismo nombre y extensión en este directorio: {nombre_original}{ext}"
-                    ]
+                    'archivo_original': f'Ya existe un archivo con el nombre "{nombre_archivo}" en el repositorio {existing.repositorio.nombre}. No se permiten duplicados.'
                 })
-
-        # Ensure nombre_original is set if uploaded file provided
-        if uploaded and nombre_original:
-            attrs['nombre_original'] = nombre_original
-        if ext:
-            attrs['tipo_archivo'] = ext
+            
+            # Guardar nombre original
+            attrs['nombre_original'] = nombre_archivo
+            
+            # Extraer y guardar extensión
+            _, ext = os.path.splitext(nombre_archivo)
+            if ext:
+                attrs['tipo_archivo'] = ext.lower()
+        
         return attrs
     
     def get_thumbnail_url(self, obj):
@@ -810,3 +838,27 @@ class ProcessingErrorSerializer(serializers.ModelSerializer):
             if request:
                 return request.build_absolute_uri(obj.archivo_original.url)
         return None
+
+
+class EncodingPresetSerializer(serializers.ModelSerializer):
+    """Serializer para presets de codificación personalizados"""
+    creado_por_nombre = serializers.CharField(source='creado_por.email', read_only=True)
+    categoria_display = serializers.CharField(source='get_categoria_display', read_only=True)
+    
+    class Meta:
+        model = EncodingPreset
+        fields = [
+            'id', 'nombre', 'descripcion', 'categoria', 'categoria_display',
+            'settings', 'creado_por', 'creado_por_nombre', 'es_global', 'activo',
+            'fecha_creacion', 'fecha_modificacion', 'veces_usado'
+        ]
+        read_only_fields = ['fecha_creacion', 'fecha_modificacion', 'veces_usado', 'creado_por']
+    
+    def validate_settings(self, value):
+        """Validar que settings tenga los campos mínimos requeridos"""
+        required_fields = ['formato', 'codec']
+        for field in required_fields:
+            if field not in value:
+                raise serializers.ValidationError(f'El campo "{field}" es requerido en settings')
+        return value
+

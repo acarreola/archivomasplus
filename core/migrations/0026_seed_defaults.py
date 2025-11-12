@@ -26,8 +26,8 @@ def seed_defaults(apps, schema_editor):
             {
                 'nombre': 'Broadcast',
                 'tipo': 'broadcast',
-                'descripcion': 'Broadcast - Solo Masters',
-                'formatos_permitidos': ['.mxf', '.mov', '.mp4'],
+                'descripcion': 'Broadcast - Solo archivos .mov',
+                'formatos_permitidos': ['.mov'],
                 'activo': True,
             },
             {

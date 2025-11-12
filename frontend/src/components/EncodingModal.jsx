@@ -204,14 +204,14 @@ export default function EncodingModal({ comercial, onClose, onSuccess }) {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-6">
             {/* Video Preview */}
             <div className="lg:col-span-1">
-              <div className="bg-black rounded-lg overflow-hidden mb-4" style={{ aspectRatio: '16/9' }}>
+              <div className="bg-black rounded-lg overflow-hidden mb-4">
                 {comercial.ruta_proxy ? (
                   <VideoPlayer
                     src={`http://localhost:8000/media/${comercial.ruta_proxy}`}
                     poster={comercial.thumbnail ? `http://localhost:8000/media/${comercial.thumbnail}` : undefined}
                   />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center text-white">
+                  <div className="w-full aspect-video flex items-center justify-center text-white">
                     Video no disponible
                   </div>
                 )}

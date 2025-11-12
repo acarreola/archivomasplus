@@ -235,6 +235,8 @@ function EncodingModal({ comercial, onClose, onSuccess }) {
   const [encoding, setEncoding] = useState(false);
   const [currentComercial, setCurrentComercial] = useState(comercial);
   const [pollingInterval, setPollingInterval] = useState(null);
+  const [dbPresets, setDbPresets] = useState({}); // Presets desde BD
+  const [loadingPresets, setLoadingPresets] = useState(false);
   
   // Custom settings
   const [customSettings, setCustomSettings] = useState({
@@ -262,6 +264,25 @@ function EncodingModal({ comercial, onClose, onSuccess }) {
       console.error('Error refrescar comercial:', error);
     }
   };
+
+  // Cargar presets de la base de datos al montar
+  useEffect(() => {
+    const loadDbPresets = async () => {
+      try {
+        setLoadingPresets(true);
+        const response = await axios.get('/api/encoding-presets/by_category/');
+        setDbPresets(response.data);
+        console.log('✅ Presets cargados desde BD:', response.data);
+      } catch (error) {
+        console.error('❌ Error cargando presets:', error);
+        setDbPresets({});
+      } finally {
+        setLoadingPresets(false);
+      }
+    };
+    
+    loadDbPresets();
+  }, []);
 
   // Polling cuando está codificando
   useEffect(() => {
@@ -308,12 +329,45 @@ function EncodingModal({ comercial, onClose, onSuccess }) {
     setEncoding(true);
 
     try {
-      const settings = customMode ? customSettings : selectedPreset;
+      let settings;
+      let presetId = 'custom';
+      
+      // Determinar si es preset de BD o hardcoded
+      if (selectedPreset?.isDbPreset) {
+        // Preset de base de datos
+        settings = selectedPreset.settings;
+        presetId = selectedPreset.id;
+        
+        // Incrementar contador de uso
+        try {
+          await axios.post(`/api/encoding-presets/${selectedPreset.id}/increment_usage/`);
+          console.log('✅ Uso de preset incrementado:', selectedPreset.nombre);
+        } catch (error) {
+          console.warn('⚠️ No se pudo incrementar uso del preset:', error);
+        }
+      } else if (customMode) {
+        // Modo personalizado
+        settings = {...customSettings};
+        
+        // Si es modo custom y la resolución es 'custom', usar los valores personalizados
+        if (customSettings.resolution === 'custom') {
+          if (!customSettings.customWidth || !customSettings.customHeight) {
+            alert('Por favor ingresa el ancho y alto personalizado');
+            setEncoding(false);
+            return;
+          }
+          settings.resolution = `${customSettings.customWidth}x${customSettings.customHeight}`;
+        }
+      } else {
+        // Preset hardcoded
+        settings = selectedPreset;
+        presetId = selectedPreset.id;
+      }
       
       const response = await axios.post('/api/broadcasts/encode/', {
-        broadcast_id: comercial.id,  // Corregido: era comercial_id
+        broadcast_id: comercial.id,
         settings: settings,
-        preset_id: selectedPreset?.id || 'custom'
+        preset_id: presetId
       });
 
       // Iniciar polling para detectar cuando termine
@@ -332,7 +386,7 @@ function EncodingModal({ comercial, onClose, onSuccess }) {
           setCurrentComercial(updatedResponse.data);
           
           // Mostrar notificación
-          alert(`✅ ¡Codificación completada!\n\nFile: ${latestFile.filename}\nTamaño: ${latestFile.file_size_mb} MB\n\nLa descarga iniciará automáticamente...`);
+          alert(`✅ ¡Codificación completada!\n\nFile: ${latestFile.download_filename || latestFile.filename}\nTamaño: ${latestFile.file_size_mb} MB\n\nLa descarga iniciará automáticamente...`);
           
           // Iniciar descarga automática
           setTimeout(async () => {
@@ -345,13 +399,14 @@ function EncodingModal({ comercial, onClose, onSuccess }) {
               const url = window.URL.createObjectURL(blob);
               const link = document.createElement('a');
               link.href = url;
-              link.download = latestFile.filename;
+              // Usar download_filename (nombre original) si existe, sino usar filename
+              link.download = latestFile.download_filename || latestFile.filename;
               document.body.appendChild(link);
               link.click();
               document.body.removeChild(link);
               window.URL.revokeObjectURL(url);
               
-              console.log('✅ Download started:', latestFile.filename);
+              console.log('✅ Download started:', latestFile.download_filename || latestFile.filename);
               
               // Wait 3 seconds and delete the file from the server
               setTimeout(async () => {
@@ -461,84 +516,13 @@ function EncodingModal({ comercial, onClose, onSuccess }) {
                 <p className="text-green-400 font-medium">{currentComercial.estado_transcodificacion}</p>
               </div>
             </div>
-
-            {/* Files Codificados */}
-            {currentComercial.encoded_files && currentComercial.encoded_files.length > 0 && (
-              <div className="mt-6 pt-6 border-t border-gray-700">
-                <h4 className="text-white font-semibold mb-3 flex items-center">
-                  <span className="mr-2">📦</span>
-                  Files Codificados ({currentComercial.encoded_files.length})
-                </h4>
-                <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {currentComercial.encoded_files.map((file, index) => (
-                    <div key={index} className="bg-gray-900 rounded-lg p-3 border border-gray-700">
-                      <div className="flex justify-between items-start mb-2">
-                        <div className="flex-1">
-                          <p className="text-white font-medium text-xs truncate">{file.filename}</p>
-                          <p className="text-gray-400 text-xs mt-1">
-                            {file.preset_id} • {file.codec} • {file.resolution}
-                          </p>
-                        </div>
-                        <span className="text-green-400 text-xs font-semibold ml-2">
-                          {file.file_size_mb} MB
-                        </span>
-                      </div>
-                      <button
-                        onClick={async () => {
-                          try {
-                            // Descargar usando fetch y blob
-                            const downloadUrl = `http://localhost:8000/media/${file.path}`;
-                            const response = await fetch(downloadUrl);
-                            const blob = await response.blob();
-                            const url = window.URL.createObjectURL(blob);
-                            const link = document.createElement('a');
-                            link.href = url;
-                            link.download = file.filename;
-                            document.body.appendChild(link);
-                            link.click();
-                            document.body.removeChild(link);
-                            window.URL.revokeObjectURL(url);
-                            
-                            console.log('✅ Manual download started:', file.filename);
-                            
-                            // Delete file after 3 seconds
-                            setTimeout(async () => {
-                              try {
-                                await axios.post('/api/broadcasts/delete-encoded/', {
-                                  broadcast_id: currentComercial.id,  // Corrected: was comercial_id
-                                  filename: file.filename
-                                });
-                                
-                                // Refresh the comercial
-                                const refreshResponse = await axios.get(`/api/broadcasts/${currentComercial.id}/`);
-                                setCurrentComercial(refreshResponse.data);
-                                
-                                console.log(`🗑️ File ${file.filename} deleted from server`);
-                              } catch (error) {
-                                console.error('Error deleting file:', error);
-                              }
-                            }, 3000);
-                          } catch (error) {
-                            console.error('Error downloading:', error);
-                            alert('⚠️ Error downloading the file. Try again.');
-                          }
-                        }}
-                        className="block w-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium py-1.5 px-3 rounded transition-colors text-center cursor-pointer"
-                      >
-                        Download & Delete
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Right Panel - Encoding Options */}
           <div className="flex-1 flex flex-col overflow-hidden">
             {/* Category Tabs */}
             <div className="bg-gray-800 border-b border-gray-700 px-6 py-3">
-              <div className="flex space-x-2">
+              <div className="flex space-x-2 overflow-x-auto">
                 {Object.keys(ENCODING_PRESETS).map(category => (
                   <button
                     key={category}
@@ -547,7 +531,7 @@ function EncodingModal({ comercial, onClose, onSuccess }) {
                       setSelectedPreset(null);
                       setCustomMode(false);
                     }}
-                    className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                    className={`px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
                       activeCategory === category
                         ? 'bg-blue-600 text-white shadow-lg'
                         : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
@@ -560,8 +544,22 @@ function EncodingModal({ comercial, onClose, onSuccess }) {
                   </button>
                 ))}
                 <button
+                  onClick={() => {
+                    setActiveCategory('custom-db');
+                    setSelectedPreset(null);
+                    setCustomMode(false);
+                  }}
+                  className={`px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
+                    activeCategory === 'custom-db'
+                      ? 'bg-purple-600 text-white shadow-lg'
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                >
+                  MIS PRESETS
+                </button>
+                <button
                   onClick={handleCustomToggle}
-                  className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                  className={`px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
                     customMode
                       ? 'bg-blue-600 text-white shadow-lg'
                       : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
@@ -575,41 +573,116 @@ function EncodingModal({ comercial, onClose, onSuccess }) {
             {/* Presets Grid */}
             <div className="flex-1 overflow-y-auto p-6 bg-gray-850">
               {!customMode ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {ENCODING_PRESETS[activeCategory].map(preset => (
-                    <div
-                      key={preset.id}
-                      onClick={() => handlePresetSelect(preset)}
-                      className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                        selectedPreset?.id === preset.id
-                          ? 'border-blue-500 bg-blue-900 bg-opacity-30'
-                          : 'border-gray-700 bg-gray-800 hover:border-gray-600'
-                      }`}
-                    >
-                      <h4 className="text-white font-bold text-lg mb-2">{preset.name}</h4>
-                      <p className="text-gray-400 text-sm mb-3">{preset.descripcion}</p>
-                      
-                      <div className="space-y-1 text-xs">
-                        <div className="flex justify-between text-gray-500">
-                          <span>Codec:</span>
-                          <span className="text-white font-medium">{preset.codec}</span>
+                <>
+                  {/* Mostrar presets hardcoded si es categoría estándar */}
+                  {activeCategory !== 'custom-db' && ENCODING_PRESETS[activeCategory] && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {ENCODING_PRESETS[activeCategory].map(preset => (
+                        <div
+                          key={preset.id}
+                          onClick={() => handlePresetSelect(preset)}
+                          className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                            selectedPreset?.id === preset.id
+                              ? 'border-blue-500 bg-blue-900 bg-opacity-30'
+                              : 'border-gray-700 bg-gray-800 hover:border-gray-600'
+                          }`}
+                        >
+                          <h4 className="text-white font-bold text-lg mb-2">{preset.name}</h4>
+                          <p className="text-gray-400 text-sm mb-3">{preset.descripcion}</p>
+                          
+                          <div className="space-y-1 text-xs">
+                            <div className="flex justify-between text-gray-500">
+                              <span>Codec:</span>
+                              <span className="text-white font-medium">{preset.codec}</span>
+                            </div>
+                            <div className="flex justify-between text-gray-500">
+                              <span>Resolución:</span>
+                              <span className="text-white font-medium">{preset.resolution}</span>
+                            </div>
+                            <div className="flex justify-between text-gray-500">
+                              <span>FPS:</span>
+                              <span className="text-white font-medium">{preset.fps}</span>
+                            </div>
+                            <div className="flex justify-between text-gray-500">
+                              <span>Audio:</span>
+                              <span className="text-white font-medium">{preset.audio_codec} @ {preset.audio_bitrate}</span>
+                            </div>
+                          </div>
                         </div>
-                        <div className="flex justify-between text-gray-500">
-                          <span>Resolución:</span>
-                          <span className="text-white font-medium">{preset.resolution}</span>
-                        </div>
-                        <div className="flex justify-between text-gray-500">
-                          <span>FPS:</span>
-                          <span className="text-white font-medium">{preset.fps}</span>
-                        </div>
-                        <div className="flex justify-between text-gray-500">
-                          <span>Audio:</span>
-                          <span className="text-white font-medium">{preset.audio_codec} @ {preset.audio_bitrate}</span>
-                        </div>
-                      </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  )}
+
+                  {/* Mostrar presets de BD si es categoría custom-db */}
+                  {activeCategory === 'custom-db' && (
+                    <div>
+                      {loadingPresets ? (
+                        <div className="flex items-center justify-center py-12">
+                          <div className="text-white">Cargando presets...</div>
+                        </div>
+                      ) : Object.keys(dbPresets).length === 0 ? (
+                        <div className="text-center py-12">
+                          <p className="text-gray-400 mb-4">No hay presets personalizados disponibles</p>
+                          <p className="text-sm text-gray-500">Crea nuevos presets desde el panel de administración</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-6">
+                          {Object.entries(dbPresets).map(([categoria, presets]) => (
+                            <div key={categoria}>
+                              <h3 className="text-white font-bold text-lg mb-3 uppercase">{categoria}</h3>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {presets.map(preset => (
+                                  <div
+                                    key={preset.id}
+                                    onClick={() => handlePresetSelect({ ...preset, isDbPreset: true })}
+                                    className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                                      selectedPreset?.id === preset.id
+                                        ? 'border-purple-500 bg-purple-900 bg-opacity-30'
+                                        : 'border-gray-700 bg-gray-800 hover:border-gray-600'
+                                    }`}
+                                  >
+                                    <div className="flex items-start justify-between mb-2">
+                                      <h4 className="text-white font-bold text-lg">{preset.nombre}</h4>
+                                      {preset.es_global ? (
+                                        <span className="px-2 py-1 bg-blue-600 text-white text-xs rounded">Global</span>
+                                      ) : (
+                                        <span className="px-2 py-1 bg-green-600 text-white text-xs rounded">Personal</span>
+                                      )}
+                                    </div>
+                                    <p className="text-gray-400 text-sm mb-3">{preset.descripcion}</p>
+                                    
+                                    <div className="space-y-1 text-xs">
+                                      <div className="flex justify-between text-gray-500">
+                                        <span>Formato:</span>
+                                        <span className="text-white font-medium">{preset.settings.formato}</span>
+                                      </div>
+                                      <div className="flex justify-between text-gray-500">
+                                        <span>Codec:</span>
+                                        <span className="text-white font-medium">{preset.settings.codec}</span>
+                                      </div>
+                                      {preset.settings.resolution && (
+                                        <div className="flex justify-between text-gray-500">
+                                          <span>Resolución:</span>
+                                          <span className="text-white font-medium">{preset.settings.resolution}</span>
+                                        </div>
+                                      )}
+                                      {preset.veces_usado > 0 && (
+                                        <div className="flex justify-between text-gray-500 mt-2 pt-2 border-t border-gray-700">
+                                          <span>Usos:</span>
+                                          <span className="text-gray-400 font-medium">{preset.veces_usado}</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
               ) : (
                 // Custom Settings Form
                 <div className="max-w-4xl mx-auto space-y-6">
@@ -665,6 +738,38 @@ function EncodingModal({ comercial, onClose, onSuccess }) {
                         ))}
                       </select>
                     </div>
+
+                    {/* Custom Width/Height when resolution is 'custom' */}
+                    {customSettings.resolution === 'custom' && (
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-semibold text-white mb-2">
+                            Ancho (px)
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            placeholder="1920"
+                            value={customSettings.customWidth}
+                            onChange={(e) => setCustomSettings({...customSettings, customWidth: e.target.value})}
+                            className="w-full px-4 py-2 bg-gray-700 text-white border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-semibold text-white mb-2">
+                            Alto (px)
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            placeholder="1080"
+                            value={customSettings.customHeight}
+                            onChange={(e) => setCustomSettings({...customSettings, customHeight: e.target.value})}
+                            className="w-full px-4 py-2 bg-gray-700 text-white border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                      </div>
+                    )}
 
                     {/* FPS */}
                     <div>

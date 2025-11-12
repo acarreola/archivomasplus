@@ -7,6 +7,11 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
   const isAudio = !!(comercial?.modulo_info?.tipo === 'audio' || comercial?.ruta_mp3 || (comercial?.ruta_h264 && comercial?.ruta_h264.endsWith?.('.mp3')));
+  const getBasename = (name) => {
+    if (!name || typeof name !== 'string') return '';
+    const parts = name.split('/').filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : name;
+  };
   
   // Form data for editing
   const [formData, setFormData] = useState({
@@ -91,7 +96,7 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
-      <div className="bg-gray-900 rounded-lg shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
+      <div className="bg-gray-900 rounded-lg shadow-2xl w-full max-w-[640px] max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header with Tabs */}
         <div className="bg-blue-700 text-white px-6 py-4">
           <div className="flex justify-between items-center mb-3">
@@ -162,13 +167,13 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
             </form>
           ) : activeTab === 'preview' ? (
             /* Vista Preview - Thumbnail on top, info below */
-            <div className="max-w-4xl mx-auto space-y-6">
-              {/* Thumbnail Preview - Tamaño estándar 16:9 */}
+            <div className="mx-auto space-y-6" style={{ maxWidth: '640px' }}>
+              {/* Thumbnail Preview - Tamaño fijo 640px ancho, 16:9 ratio */}
               <div className="bg-white border-2 border-gray-200 rounded-lg p-6 shadow-sm">
                 <h3 className="font-semibold text-gray-800 mb-4 text-lg uppercase tracking-wide border-b-2 border-blue-500 pb-2">Thumbnail Preview</h3>
                 <div className="flex justify-center">
                   {comercial.thumbnail_url ? (
-                    <div className="w-full" style={{ aspectRatio: '16/9', maxHeight: '60vh' }}>
+                    <div className="w-full aspect-video">
                       <img 
                         src={comercial.thumbnail_url} 
                         alt="Thumbnail" 
@@ -176,7 +181,7 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
                       />
                     </div>
                   ) : (
-                    <div className="w-full bg-gray-100 rounded flex items-center justify-center text-gray-400 border-2 border-dashed border-gray-300" style={{ aspectRatio: '16/9', maxHeight: '60vh' }}>
+                    <div className="w-full aspect-video bg-gray-100 rounded flex items-center justify-center text-gray-400 border-2 border-dashed border-gray-300">
                       <div className="text-center">
                         <svg className="w-16 h-16 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -195,7 +200,7 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
                   {/* Original Name */}
                   <div>
                     <span className="font-bold text-gray-700 text-sm">Original Name:</span>{' '}
-                    <span className="text-gray-900 text-sm">{comercial.nombre_original || 'N/A'}</span>
+                    <span className="text-gray-900 text-sm">{getBasename(comercial.nombre_original) || 'N/A'}</span>
                   </div>
 
                   {/* File Code */}
@@ -231,10 +236,10 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
                   <div>
                     <span className="font-bold text-gray-700 text-sm">Upload Date:</span>{' '}
                     <span className="text-gray-900 text-sm">
-                      {new Date(comercial.date_subida).toLocaleString('es-MX', {
+                      {comercial.fecha_subida ? new Date(comercial.fecha_subida).toLocaleString('es-MX', {
                         dateStyle: 'long',
                         timeStyle: 'short'
-                      })}
+                      }) : 'N/A'}
                     </span>
                   </div>
 
@@ -254,7 +259,7 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
               </div>
             </div>
           ) : (
-            /* Edit Metadata Tab - Two Column Layout (60/40 split) */
+            /* Edit Metadata Tab - Solo Pizarra y Metadata Fields */
             <form onSubmit={handleSubmit} className="space-y-6">
               {error && (
                 <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
@@ -262,13 +267,12 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
                 </div>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
-                {/* Left Column: Pizarra (60% - 3 cols) */}
-                <div className="md:col-span-3 space-y-4">
-                  {/* Pizarra Thumbnail - Tamaño estándar 16:9 */}
+              <div className="space-y-6">
+                {/* Pizarra Thumbnail - Tamaño fijo 640px ancho, 16:9 ratio */}
+                <div className="mx-auto" style={{ maxWidth: '640px' }}>
                   <div className="bg-white border-2 border-gray-200 rounded-lg overflow-hidden shadow-lg">
                     {comercial.pizarra_thumbnail_url ? (
-                      <div className="w-full" style={{ aspectRatio: '16/9', maxHeight: '60vh' }}>
+                      <div className="w-full aspect-video">
                         <img 
                           src={comercial.pizarra_thumbnail_url} 
                           alt="Pizarra" 
@@ -276,7 +280,7 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
                         />
                       </div>
                     ) : (
-                      <div className="w-full bg-gray-100 flex items-center justify-center text-gray-400" style={{ aspectRatio: '16/9', maxHeight: '60vh' }}>
+                      <div className="w-full aspect-video bg-gray-100 flex items-center justify-center text-gray-400">
                         <div className="text-center p-8">
                           <svg className="w-16 h-16 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -289,155 +293,122 @@ export default function ComercialEditModal({ comercial, onClose, onSave }) {
                       </div>
                     )}
                   </div>
-
-                  {/* Only 3 fields: Original Name, File Code, File Size */}
-                  <div className="bg-gradient-to-br from-gray-50 to-gray-100 border-2 border-gray-200 rounded-lg p-4 shadow-sm">
-                    <div className="space-y-3">
-                      {/* Original Name */}
-                      <div>
-                        <span className="font-bold text-gray-700 text-sm">Original Name:</span>{' '}
-                        <span className="text-gray-900 text-sm">{comercial.nombre_original || 'N/A'}</span>
-                      </div>
-                      
-                      {/* File Code */}
-                      <div>
-                        <span className="font-bold text-gray-700 text-sm">File Code:</span>{' '}
-                        <code className="bg-gray-800 text-green-400 px-2 py-1 rounded text-xs font-mono">
-                          {comercial.id.split('-')[0]}.mov
-                        </code>
-                      </div>
-
-                      {/* File Size */}
-                      {comercial.file_size && (
-                        <div>
-                          <span className="font-bold text-gray-700 text-sm">File Size:</span>{' '}
-                          <span className="text-gray-900 text-sm font-semibold">
-                            {(() => {
-                              const bytes = comercial.file_size;
-                              if (bytes >= 1073741824) return `${(bytes / 1073741824).toFixed(2)} GB`;
-                              else if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(2)} MB`;
-                              else if (bytes >= 1024) return `${(bytes / 1024).toFixed(2)} KB`;
-                              else return `${bytes} bytes`;
-                            })()}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
                 </div>
-
-                {/* Right Column: Editable Metadata Fields (40% - 2 cols) */}
-                <div className="md:col-span-2 space-y-3">
-                  <h3 className="text-base font-bold text-gray-800 border-b-2 border-blue-500 pb-2">Metadata Fields</h3>
+                
+                {/* Metadata Fields - Grid de 2 columnas */}
+                <div className="mx-auto" style={{ maxWidth: '640px' }}>
+                  <h3 className="text-lg font-bold text-gray-800 border-b-2 border-blue-500 pb-2 mb-4">Metadata Fields</h3>
                   
-                  {/* Client */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1">
-                      Client
-                    </label>
-                    <input
-                      type="text"
-                      name="pizarra.cliente"
-                      value={formData.pizarra.cliente}
-                      onChange={handleChange}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                      placeholder="Client name"
-                    />
-                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Client */}
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-1">
+                        Client
+                      </label>
+                      <input
+                        type="text"
+                        name="pizarra.cliente"
+                        value={formData.pizarra.cliente}
+                        onChange={handleChange}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white uppercase"
+                        placeholder="Client name"
+                      />
+                    </div>
 
-                  {/* Agency */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1">
-                      Agency
-                    </label>
-                    <input
-                      type="text"
-                      name="pizarra.agencia"
-                      value={formData.pizarra.agencia}
-                      onChange={handleChange}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                      placeholder="Agency name"
-                    />
-                  </div>
+                    {/* Agency */}
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-1">
+                        Agency
+                      </label>
+                      <input
+                        type="text"
+                        name="pizarra.agencia"
+                        value={formData.pizarra.agencia}
+                        onChange={handleChange}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white uppercase"
+                        placeholder="Agency name"
+                      />
+                    </div>
 
-                  {/* Product */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1">
-                      Product
-                    </label>
-                    <input
-                      type="text"
-                      name="pizarra.producto"
-                      value={formData.pizarra.producto || ''}
-                      onChange={handleChange}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                      placeholder="Enter product"
-                    />
-                  </div>
+                    {/* Product */}
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-1">
+                        Product
+                      </label>
+                      <input
+                        type="text"
+                        name="pizarra.producto"
+                        value={formData.pizarra.producto || ''}
+                        onChange={handleChange}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white uppercase"
+                        placeholder="Enter product"
+                      />
+                    </div>
 
-                  {/* Version */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1">
-                      Version
-                    </label>
-                    <input
-                      type="text"
-                      name="pizarra.version"
-                      value={formData.pizarra.version || ''}
-                      onChange={handleChange}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                      placeholder="Enter version"
-                    />
-                  </div>
+                    {/* Version */}
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-1">
+                        Version
+                      </label>
+                      <input
+                        type="text"
+                        name="pizarra.version"
+                        value={formData.pizarra.version || ''}
+                        onChange={handleChange}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white uppercase"
+                        placeholder="Enter version"
+                      />
+                    </div>
 
-                  {/* Time */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1">
-                      Time
-                    </label>
-                    <input
-                      type="text"
-                      name="pizarra.duracion"
-                      value={formData.pizarra.duracion}
-                      onChange={handleChange}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                      placeholder="e.g., 30, 60"
-                    />
-                  </div>
+                    {/* Time */}
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-1">
+                        Time
+                      </label>
+                      <input
+                        type="text"
+                        name="pizarra.duracion"
+                        value={formData.pizarra.duracion}
+                        onChange={handleChange}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white uppercase"
+                        placeholder="e.g., 30, 60"
+                      />
+                    </div>
 
-                  {/* Format */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1">
-                      Format
-                    </label>
-                    <select
-                      name="pizarra.formato"
-                      value={formData.pizarra.formato}
-                      onChange={handleChange}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                    >
-                      <option value="">Select format...</option>
-                      <option value="Master">Master</option>
-                      <option value="Generico">Generico</option>
-                      <option value="Intergenerico">Intergenerico</option>
-                      <option value="Intergenerico con logos">Intergenerico con logos</option>
-                      <option value="Subtitulado">Subtitulado</option>
-                      <option value="Pista">Pista</option>
-                    </select>
-                  </div>
+                    {/* Format */}
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-1">
+                        Format
+                      </label>
+                      <select
+                        name="pizarra.formato"
+                        value={formData.pizarra.formato}
+                        onChange={handleChange}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white uppercase"
+                      >
+                        <option value="">Select format...</option>
+                        <option value="Master">Master</option>
+                        <option value="Generico">Generico</option>
+                        <option value="Intergenerico">Intergenerico</option>
+                        <option value="Intergenerico con logos">Intergenerico con logos</option>
+                        <option value="Subtitulado">Subtitulado</option>
+                        <option value="Pista">Pista</option>
+                      </select>
+                    </div>
 
-                  {/* Date */}
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1">
-                      Date-Create
-                    </label>
-                    <input
-                      type="date"
-                      name="pizarra.fecha"
-                      value={formData.pizarra.fecha || ''}
-                      onChange={handleChange}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                    />
+                    {/* Date */}
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-1">
+                        Date-Create
+                      </label>
+                      <input
+                        type="date"
+                        name="pizarra.fecha"
+                        value={formData.pizarra.fecha || ''}
+                        onChange={handleChange}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>

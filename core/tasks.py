@@ -578,9 +578,14 @@ def encode_custom_video(broadcast_id, encoding_settings, preset_id='custom'):
         print(f"✅ Codificación completada: {output_filename}")
         print(f"📊 Tamaño del archivo: {output_path.stat().st_size / (1024*1024):.2f} MB")
         
+        # Extraer nombre original sin extensión para usar en descarga
+        original_name = Path(broadcast.nombre_original).stem if broadcast.nombre_original else short_id
+        download_filename = f"{original_name}.{formato}"
+        
         # Guardar información del archivo codificado en el modelo
         file_info = {
-            'filename': output_filename,
+            'filename': output_filename,  # Nombre interno en servidor
+            'download_filename': download_filename,  # Nombre para descarga (original)
             'path': f'encoded/{output_filename}',
             'preset_id': preset_id,
             'formato': formato,
@@ -599,12 +604,14 @@ def encode_custom_video(broadcast_id, encoding_settings, preset_id='custom'):
         broadcast.save()
         
         print(f"💾 Archivo codificado guardado en base de datos")
+        print(f"📥 Se descargará como: {download_filename}")
         
         return {
             'status': 'success',
             'broadcast_id': str(broadcast.id),
             'output_path': str(output_path),
             'output_filename': output_filename,
+            'download_filename': download_filename,
             'preset_id': preset_id,
             'file_size_mb': output_path.stat().st_size / (1024*1024)
         }

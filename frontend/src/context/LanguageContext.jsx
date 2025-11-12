@@ -1,5 +1,10 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import translations from '../locales/translations.json';
+
+// Verificar que React está disponible
+if (!React || !React.useState) {
+  throw new Error('React no está disponible. Verifica que react y react-dom estén correctamente instalados.');
+}
 
 const LanguageContext = createContext(null);
 

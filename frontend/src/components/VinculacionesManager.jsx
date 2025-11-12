@@ -1,5 +1,5 @@
 // frontend/src/components/VinculacionesManager.jsx
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import axios from '../utils/axios';
 
 export default function VinculacionesManager() {
@@ -8,6 +8,7 @@ export default function VinculacionesManager() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [overview, setOverview] = useState(null);
+  const fetchingOverview = useRef(false);
 
   useEffect(() => {
     (async () => {
@@ -20,16 +21,27 @@ export default function VinculacionesManager() {
     })();
   }, []);
 
-  const fetchOverview = async () => {
+  const fetchOverview = useCallback(async () => {
+    if (fetchingOverview.current) {
+      console.log('⚠️ Ya hay una petición de overview en curso, saltando...');
+      return;
+    }
+    
+    fetchingOverview.current = true;
     try {
       const r = await axios.get('/api/broadcasts/sources_overview/');
       setOverview(r.data);
     } catch (e) {
+      console.error('Error fetching overview:', e);
       setOverview({ error: e.response?.data?.error || e.message });
+    } finally {
+      fetchingOverview.current = false;
     }
-  };
+  }, []);
 
-  useEffect(() => { fetchOverview(); }, []);
+  useEffect(() => { 
+    fetchOverview(); 
+  }, [fetchOverview]);
 
   const handlePreview = async () => {
     if (!selectedRepo) return;
